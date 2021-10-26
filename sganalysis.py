@@ -2,10 +2,12 @@
 
 conda create -n sganalysis
 conda activate sganalysis
-conda install pytorch torchvision cudatoolkit=10.2 -c pytorch 
+conda install pytorch torchvision cudatoolkit=10.2 -c pytorch
 conda install tifffile scikit-image pandas
+conda install -c conda-forge jupyterlab
 python -m pip install edt
 python -m pip install cellpose
+
 
 """
 import argparse
@@ -20,8 +22,16 @@ from skimage.filters import difference_of_gaussians
 from skimage.measure import label, regionprops
 import edt
 import math
-from scipy.stats import pearsonr, spearmanr 
+from scipy.stats import pearsonr, spearmanr
 
+
+def manders_coefficients(im1,im2,display=False):
+    ''' Compute Manders overlap coefficients'''
+    intersect = np.logical_and(im1,im2)
+    p12 = np.sum(intersect>0)
+    p1 = np.sum(im1>0)
+    p2 = np.sum(im2>0)
+    return ( p12 / p1, p12 / p2)
 
 class SGA:
     """Stress granule analysis
@@ -31,7 +41,7 @@ class SGA:
         """Create a SGA instance setting the filename"""
         self.filename = filename
         self.filelist = pd.read_csv(filename)
-        self.root = Path(os.path.dirname(filename))        
+        self.root = Path(os.path.dirname(filename))
         self.cell_channels = [0,2]
         self.nuclei_channels = [0,0]
         self.granule_channel = 3
@@ -40,9 +50,9 @@ class SGA:
 
     def get_image(self, index):
         fn =  self.root / self.filelist['Filename'][index]
-        print(fn) 
+        print(fn)
         return tifffile.imread(fn)
-    
+
     def get_condition(self,index):
         return self.filelist['Condition'][index]
 
@@ -60,77 +70,137 @@ class SGA:
         flt = difference_of_gaussians(img[self.granule_channel,:,:], 1, 4)
         t = flt.mean() + 3*flt.std()
         return label(flt > t).astype(np.uint)
-    
-    def get_distance_to_nuclei(self, cells, nuclei, id):
-        mask = (cells == id) * (nuclei == 0)
-        return edt.edt(mask)   
 
-    def measure_objects_in_cell(self, roi, img, cells, nuclei, granules):        
-        id = roi.label        
-        # measure the distance of granules in this cell
-        d = self.get_distance_to_nuclei(cells,nuclei,id)
-        if np.isinf(d).any():
-            return None
-        granules_in_cell = granules * (cells==id) * (nuclei==0)
-        distance = regionprops(granules_in_cell, d)
+    def segment_other(self, img):
+        flt = difference_of_gaussians(img[self.other_channel,:,:], 1, 4)
+        t = flt.mean() + 3*flt.std()
+        return label(flt > t).astype(np.uint)
+
+    def spatial_spread(self, mask, intensity):
+        """Spread as the trace of the moment matrix"""
+        x,y = np.meshgrid(np.arange(mask.shape[0]), np.arange(mask.shape[1]))
+        w = mask * intensity
+        sw = np.sum(w)
+        if sw < 1e-9:
+            return 0.0
+        sx = np.sum(w * x) / sw
+        sy = np.sum(w * y) / sw
+        sxx = np.sum(w * np.square(x-sx)) / sw
+        syy = np.sum(w * np.square(y-sy)) / sw
+        #sxy = np.sum(w * (x-sx) * (y-sy)) / sw
+        return np.sqrt(sxx+syy)
+
+    def measure_objects_in_cell(self, roi, img, cells, nuclei, granules, other):
+        id = roi.label
+
+        # define the 3 regions
+        mask_not_nuclei = (nuclei==0)
+        mask_cell       = (cells==id) * mask_not_nuclei
+        mask_particle   = mask_cell  * mask_not_nuclei *  granules
+        mask_cytosol    = mask_cell  * mask_not_nuclei * (granules==0)
+
+        if np.sum((cells==id) * (nuclei > 0)) < 1.0:
+            return None,None
+
+        # compute distance map
+        distance_to_nucleus = regionprops(mask_particle, edt.edt((cells == id) * (nuclei > 0)))
+        distance_to_edge = regionprops(mask_particle, edt.edt(cells == id))
         # intensity in the granules in all channels
-        regions = regionprops(granules_in_cell, np.moveaxis(img,0,2))
-        # remove very small regions                
+        regions = regionprops(mask_particle, np.moveaxis(img,0,2))
+
+        # remove very small regions
         keep = [k for k,x in enumerate(regions) if x.perimeter_crofton > 1 and x.area > 1 and x.major_axis_length > 1]
         regions = [regions[k] for k in keep]
-        distance = [distance[k] for k in keep]
+        distance_to_nucleus = [distance_to_nucleus[k] for k in keep]
+        distance_to_edge = [distance_to_edge[k] for k in keep]
+
         # mask of the cytosol without nuclei and granules
-        cytosol_only = (cells==id) * (1- (granules > 0)) * (1- (nuclei > 0))
-        # intensity in granule channel in cytosol
-        granule_cytosol = np.sum(img[self.granule_channel,:,:] *  cytosol_only) / np.sum(cytosol_only)
-        # intensity in other channel in cytosol
-        other_cytosol = np.sum(img[self.other_channel,:,:] *  cytosol_only) / np.sum(cytosol_only)
-        D1 = {
+        area_cell = np.sum(mask_cell)
+        area_cytosol = np.sum(mask_cytosol)
+        area_particle = np.sum(mask_particle)
+        sum_cell = [np.sum(img[k,:,:] * mask_cell)  for k in range(img.shape[0])]
+        sum_cytosol = [np.sum(img[k,:,:] * mask_cytosol)  for k in range(img.shape[0])]
+        sum_particle = [np.sum(img[k,:,:] * mask_particle) for k in range(img.shape[0])]
+        mean_cell = [x / area_cell for x in sum_cell]
+        mean_cytosol = [x / area_cytosol for x in sum_cytosol]
+        mean_particle = [x / area_particle for x in sum_particle]
+        if len(regions) > 0:
+            D1 = {
+                "Particle ID": [x.label for x in regions],
+                "Cell ID": id,
+                "Mean intensity of granule": [x.mean_intensity[self.granule_channel] for x in regions],
+                "Total intensity of granule" : [x.area * x.mean_intensity[self.granule_channel] for x in regions],
+                "Mean Intensity of granule ratio of particle:cytosol": [x.mean_intensity[self.granule_channel]/mean_cytosol[self.granule_channel] for x in regions],
+                "Mean Intensity of other":  [x.mean_intensity[self.other_channel] for x in regions],
+                "Total Intensity of other" : [x.area * x.mean_intensity[self.other_channel] for x in regions],
+                "Mean Intensity of other ratio of particle:cytosol": [x.mean_intensity[self.other_channel]/mean_cytosol[self.other_channel] for x in regions],
+                "Area": [x.area for x in regions],
+                "Perimeter" : [x.perimeter_crofton for x in regions],
+                "Distance to nuclei": [x.mean_intensity for x in distance_to_nucleus],
+                "Distance to edge": [x.mean_intensity for x in distance_to_edge],
+                "Circularity": [4.0*math.pi*x.area/ x.perimeter_crofton**2 for x in regions],
+                "Aspect ratio" : [x.minor_axis_length / x.major_axis_length for x in regions],
+                "Solidity" : [x.solidity for x in regions],
+                "Roundness" : [4.0*x.area /(math.pi * x.major_axis_length**2) for x in regions],
+            }
+        else:
+            D1 = None
+
+        # extract intensity in granules and other in cell cytosol
+        I_granule = img[self.granule_channel,:,:]
+        I_other = img[self.other_channel,:,:]
+        I_granule = I_granule[mask_cell]
+        I_other = I_other[mask_cell]
+        m1,m2 = manders_coefficients((granules>0) * mask_cell, (other>0) * mask_cell)
+        D2 = {
             "Cell ID": id,
-            "ID": [int(x.label) for x in regions],
-            
-            "Mean Intensity in Granule [Granule]": [x.mean_intensity[self.granule_channel] for x in regions],   
-            "Total Intensity in Granule [Granule]" : [x.area * x.mean_intensity[self.granule_channel] for x in regions],
-            "Mean Intensity in Cytosol [Granule]" : granule_cytosol,
-            "Ratio of Mean Intensity:Cytosol [Granule]":  [x.mean_intensity[self.granule_channel]/granule_cytosol for x in regions], 
-
-            "Mean Intensity in Granule [Other]":  [x.mean_intensity[self.other_channel] for x in regions],
-            "Total Intensity in Granule [Other]" : [x.area * x.mean_intensity[self.other_channel] for x in regions],
-            "Mean Intensity in Cytosol [Other]":  other_cytosol,
-            "Ratio of Mean Intensity:Cytosol [Other]":  [x.mean_intensity[self.other_channel]/other_cytosol for x in regions], 
-            
-            "Area": [x.area for x in regions],
-            "Perimeter" : [x.perimeter for x in regions],
-            "Distance to Nuclei": [x.mean_intensity for x in distance],
-            "Circularity": [4.0*math.pi*x.area/ x.perimeter_crofton**2 for x in regions],
-            "Aspect Ratio" : [x.minor_axis_length / x.major_axis_length for x in regions],
-            "Solidity" : [x.solidity for x in regions],
-            "Roundness" : [4.0*x.area /(math.pi * x.major_axis_length**2) for x in regions],
+            "Area of whole cell" : roi.area,
+            "Area of cell without nuclei": area_cell,
+            "Area of all particles" : area_particle,
+            "Area of cytosol": area_cytosol,
+            "Area ratio particle:cell": np.sum(mask_particle) / np.sum(mask_cell),
+            "Area ratio cytosol:cell":  np.sum(mask_cytosol) / np.sum(mask_cell),
+            "Average particle area": np.mean(np.array([x.area for x in regions])),
+            "Mean intensity in cell of granule channel" : mean_cell[self.granule_channel],
+            "Mean intensity in cell of other channel"   : mean_cell[self.other_channel],
+            "Total Intensity in cell of granule channel": sum_cell[self.granule_channel],
+            "Total Intensity in celll of other channel"  : sum_cell[self.other_channel],
+            "Mean intensity in cytosol of granule channel" : mean_cytosol[self.granule_channel],
+            "Mean intensity in cytosol of other channel"   : mean_cytosol[self.other_channel],
+            "Total Intensity in cytosol of granule channel": sum_cytosol[self.granule_channel],
+            "Total Intensity in cytosol of other channel"  : sum_cytosol[self.other_channel],
+            "Mean intensity in particle of granule channel" : mean_particle[self.granule_channel],
+            "Mean intensity in particle of other channel "  : mean_particle[self.other_channel],
+            "Total Intensity in particle of granule channel": sum_particle[self.granule_channel],
+            "Total Intensity in particle of other channel"  : sum_particle[self.other_channel],
+            "Intensity ratio of other:granule in particle": mean_particle[self.other_channel] / mean_particle[self.granule_channel],
+            "Intensity ratio of other:granule in cell" :  mean_cell[self.other_channel] / mean_cell[self.granule_channel],
+            "Intensity ratio of other:granule in cytosol" :  mean_cytosol[self.other_channel] / mean_cytosol[self.granule_channel],
+            "Mean intensity ratio of other particle:cytosol": mean_particle[self.other_channel] /  mean_cytosol[self.other_channel],
+            "Mean intensity ratio of granule particle:cytosol": mean_particle[self.granule_channel] /  mean_cytosol[self.granule_channel],
+            "Colocalization spearman granule:other" : spearmanr(I_granule,I_other)[0],
+            "Colocalization pearson granule:other"  : pearsonr(I_granule,I_other)[0],
+            "Colocalization manders 1": m1,
+            "Colocalization manders 2": m2,
+            "Number of particles" : len(regions),
+            "Spread of particle" : self.spatial_spread(mask_particle, img[self.granule_channel,:,:]),
+            "Mean particle area" : np.mean(D1["Area"]) if D1 is not None else 0.,
+            "Mean particle perimeter" : np.mean(D1["Perimeter"]) if D1 is not None else 0.,
+            "Mean particle distance to nuclei" : np.mean(D1["Distance to nuclei"]) if D1 is not None else 0.,
+            "Mean particle distance to edge" : np.mean(D1["Distance to edge"]) if D1 is not None else 0.,
+            "Mean particle circularity" : np.mean(D1["Circularity"]) if D1 is not None else 0.,
+            "Mean particle aspect ratio" : np.mean(D1["Aspect ratio"]) if D1 is not None else 0.,
+            "Mean particle solidity" : np.mean(D1["Solidity"]) if D1 is not None else 0.,
+            "Mean particle roundness" : np.mean(D1["Roundness"]) if D1 is not None else 0.
         }
+        if D1 is None :
+            return None,  pd.DataFrame(D2, index=[roi.label])
+        else :
+            return pd.DataFrame.from_dict(D1), pd.DataFrame(D2, index=[roi.label])
 
-        # extract intensity in grnaule and other in cell cytosol
-        x1 = img[self.granule_channel,:,:]
-        x2 = img[self.other_channel,:,:]
-        idx = (cells==id) * (nuclei==0)
-        x1 = x1[idx]
-        x2 = x2[idx]
-        D2 = {            
-            "Cell Area" : roi.area,
-            "Number of Granules in Cell" : len(regions),
-            "Colocalization Spearman Granule:Other" : spearmanr(x1,x2)[0],
-            "Colocalization Pearson Granule:Other" : pearsonr(x1,x2)[0],
-            "Mean Intensity in Cytosol [Granule]" : granule_cytosol,
-            "Mean Intensity in Cytosol [Other]":  other_cytosol,
-            "Total Intensity in Cytosol [Granule]" : granule_cytosol * roi.area,
-            "Total Intensity in Cytosol [Other]":  other_cytosol * roi.area,
-            "Cell ID": id
-        }
-
-        return pd.DataFrame.from_dict(D1), pd.DataFrame(D2, index=[roi.label]) 
-
-    def measure(self, img, cells, nuclei, granules):
+    def measure(self, img, cells, nuclei, granules, other):
         rois = regionprops(cells, np.moveaxis(img,0,2))
-        rois = [x for x in rois if x.area > 20]       
+        rois = [x for x in rois if x.area > 20]
         obj_df = []
         roi_df = []
         for roi in rois:
@@ -139,20 +209,20 @@ class SGA:
                 obj_df.append(o)
                 roi_df.append(r)
         return pd.concat(obj_df), pd.concat(roi_df)
-        
+
     def process(self, index):
         img = self.get_image(index)
         cells = self.segment_cells(img)
-        print(cells.dtype)
         nuclei = self.segment_nuclei(img)
         granules = self.segment_granules(img)
-        O,R = self.measure(img,cells,nuclei,granules)
+        other = self.segment_other(img)
+        O,R = self.measure(img,cells,nuclei,granules,other)
         for df in [O,R]:
             df['Condition'] = self.get_condition(index)
             df['Filename'] = self.filelist['Filename'][index]
             df['File ID'] = index
-
-        return O,R
+        stack = np.concatenate((img,np.expand_dims(cells,0),np.expand_dims(nuclei,0),np.expand_dims(granules,0),np.expand_dims(other,0)))
+        return O,R,stack
 
 def main():
     parser = argparse.ArgumentParser(description='Stress granules analysis')
@@ -166,7 +236,7 @@ def main():
     print(f'index {args.index}')
     sga = SGA(args.file_list)
     granules, cells = sga.process(args.index)
-    
+
     if args.output_by_granules is not None:
         print(f'Saving results by granules to file {args.output_by_granules}')
         granules.to_csv(args.output_by_granules)
@@ -174,8 +244,8 @@ def main():
     if args.output_by_cells is not None:
         print(f'Saving results by cells to file {args.output_by_cells}')
         cells.to_csv(args.output_by_cells)
-        
-    
+
+
 if __name__ == "__main__":
     main()
 

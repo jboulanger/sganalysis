@@ -8,8 +8,8 @@ conda install -c conda-forge jupyterlab
 python -m pip install edt
 python -m pip install cellpose
 
-
 """
+
 import argparse
 import numpy as np
 import time, os, sys
@@ -105,7 +105,7 @@ class SGA:
             return None,None
 
         # compute distance map
-        distance_to_nucleus = regionprops(mask_particle, edt.edt((cells == id) * (nuclei > 0)))
+        distance_to_nucleus = regionprops(mask_particle, edt.edt( 1 - (nuclei > 0)))
         distance_to_edge = regionprops(mask_particle, edt.edt(cells == id))
         # intensity in the granules in all channels
         regions = regionprops(mask_particle, np.moveaxis(img,0,2))

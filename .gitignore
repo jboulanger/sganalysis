@@ -1,4 +1,6 @@
 *.csv
 *.pdf
-*-checkpoints.ipynb
+*-checkpoint.ipynb
 *.pyc
+*.png
+*.tif

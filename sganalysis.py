@@ -19,11 +19,13 @@ import pandas as pd
 from pathlib import Path
 from cellpose import models
 from skimage.filters import difference_of_gaussians
-from skimage.measure import label, regionprops
+from skimage.measure import label, regionprops, find_contours
 import edt
 import math
 from scipy.stats import pearsonr, spearmanr
-
+import matplotlib
+import matplotlib.pyplot as plt
+matplotlib.use('AGG')
 
 def manders_coefficients(im1,im2,display=False):
     ''' Compute Manders overlap coefficients'''
@@ -198,17 +200,34 @@ class SGA:
         else :
             return pd.DataFrame.from_dict(D1), pd.DataFrame(D2, index=[roi.label])
 
+    def render_image(self,img):
+        stack = np.sqrt(img)
+        for i in range(stack.shape[0]):
+            plane = stack[i,:,:]
+            stack[i,:,:] = 255 * (plane - plane.min()) / (plane.max() - plane.min())
+        M = np.array([[0,0,1,1],[0,0.7,0,1],[0.7,0,0,1]])
+        rgb = np.apply_along_axis(lambda x:np.matmul(M,x),0,stack)
+        rgb = (255 * (rgb - rgb.min()) / (rgb.max() - rgb.min())).astype(int)
+        return np.moveaxis(rgb,0,2)
+
     def measure(self, img, cells, nuclei, granules, other):
         rois = regionprops(cells, np.moveaxis(img,0,2))
-        rois = [x for x in rois if x.area > 20]
+        roi_areas = [x.area for x in rois]
+        area_min = np.mean(roi_areas) - np.std(roi_areas)
+        rois = [x for x in rois if x.area > area_min]
         obj_df = []
         roi_df = []
+        cell_contours = []
         for roi in rois:
-            o, r = self.measure_objects_in_cell(roi, img, cells, nuclei, granules)
-            if o is not None:
-                obj_df.append(o)
-                roi_df.append(r)
-        return pd.concat(obj_df), pd.concat(roi_df)
+            # roi not touching the boundaries
+            if np.all(roi.coords > 0) and (np.all(roi.coords[:,0] < img.shape[1]-1)) and (np.all(roi.coords[:,1] < img.shape[2]-1)):
+                o, r = self.measure_objects_in_cell(roi, img, cells, nuclei, granules, other)
+                if o is not None:
+                    obj_df.append(o)
+                    roi_df.append(r)
+                    cell_contours.append(find_contours(cells==roi.label, 0.5))
+
+        return pd.concat(obj_df), pd.concat(roi_df), cell_contours
 
     def process(self, index):
         img = self.get_image(index)
@@ -216,13 +235,13 @@ class SGA:
         nuclei = self.segment_nuclei(img)
         granules = self.segment_granules(img)
         other = self.segment_other(img)
-        O,R = self.measure(img,cells,nuclei,granules,other)
+        O,R,C = self.measure(img,cells,nuclei,granules,other)
         for df in [O,R]:
             df['Condition'] = self.get_condition(index)
             df['Filename'] = self.filelist['Filename'][index]
             df['File ID'] = index
-        stack = np.concatenate((img,np.expand_dims(cells,0),np.expand_dims(nuclei,0),np.expand_dims(granules,0),np.expand_dims(other,0)))
-        return O,R,stack
+
+        return O,R,C
 
 def main():
     parser = argparse.ArgumentParser(description='Stress granules analysis')
@@ -230,12 +249,14 @@ def main():
     parser.add_argument('--index',help='file index',type=int)
     parser.add_argument('--output-by-granules',help='filename of the output table by granule')
     parser.add_argument('--output-by-cells',help='filename of the output table by cell')
+    parser.add_argument('--output-cell-contours',help='filename of the output contours file')
+    parser.add_argument('--output-vignette',help='filename of the output vignette file')
 
     args = parser.parse_args()
     print(f'file list {args.file_list}')
     print(f'index {args.index}')
     sga = SGA(args.file_list)
-    granules, cells = sga.process(args.index)
+    granules, cells, contours = sga.process(args.index)
 
     if args.output_by_granules is not None:
         print(f'Saving results by granules to file {args.output_by_granules}')
@@ -245,6 +266,19 @@ def main():
         print(f'Saving results by cells to file {args.output_by_cells}')
         cells.to_csv(args.output_by_cells)
 
+    if args.output_cell_contours is not None:
+        print(f'Saving cell contours to file {args.output_cell_contours}')
+        np.savez(args.output_cell_contours, contours)
+
+    if args.output_vignette is not None:
+        print(f'Saving vignette to file {args.output_vignette}')
+        img = sga.get_image(args.index)
+        visu = sga.render_image(img)
+        plt.imshow(visu)
+        for c in contours:
+            plt.plot(c[0][:,1],c[0][:,0])
+        plt.axis('off')
+        plt.savefig(args.output_vignette)
 
 if __name__ == "__main__":
     main()

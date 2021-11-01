@@ -73,5 +73,5 @@ Measurement per particle:
 16. Roundness (4 Area / (PI major_axis^2))
 
 Note:
-• There is not difference between particle and SG  the only difference is how we report the results : per cell or per granule
-• Particle Perimeter/Particle Area = 1/circularity
+- There is not difference between particle and SG  the only difference is how we report the results : per cell or per granule
+- Particle Perimeter/Particle Area = 1/circularity

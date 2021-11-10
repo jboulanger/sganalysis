@@ -7,8 +7,8 @@ Images have 4 channels
 4. Granules
 
 Segmentations:
-- Cells are segmented using channels 1 DAPI and 2 WGA
-- Nuclei are segmented using channel 1 DAPI
+- Cells are segmented using channels 1 DAPI and 2 WGA using cellpose
+- Nuclei are segmented using channel 1 DAPI using cellpose
 - Stress granules are segmented using channel 4
 - Other label
 

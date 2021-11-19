@@ -39,11 +39,11 @@ class SGA:
     """Stress granule analysis
     Manipulate a list of files and process one file from it
     """
-    def __init__(self, filename, use_gpu=False):
+    def __init__(self, filename, data_path, use_gpu=False):
         """Create a SGA instance setting the filename"""
         self.filename = filename
         self.filelist = pd.read_csv(filename)
-        self.root = Path(os.path.dirname(filename))
+        self.root = data_path
         self.cell_channels = [0,2]
         self.nuclei_channels = [0,0]
         self.granule_channel = 3
@@ -246,6 +246,7 @@ class SGA:
 def main():
     parser = argparse.ArgumentParser(description='Stress granules analysis')
     parser.add_argument('--file-list',help='filelist')
+    parser.add_argument('--data-path',help='path to data')
     parser.add_argument('--index',help='file index',type=int)
     parser.add_argument('--output-by-granules',help='filename of the output table by granule')
     parser.add_argument('--output-by-cells',help='filename of the output table by cell')
@@ -255,7 +256,7 @@ def main():
     args = parser.parse_args()
     print(f'file list {args.file_list}')
     print(f'index {args.index}')
-    sga = SGA(args.file_list)
+    sga = SGA(args.file_list,args.data_path)
     granules, cells, contours = sga.process(args.index)
 
     if args.output_by_granules is not None:

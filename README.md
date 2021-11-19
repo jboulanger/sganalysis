@@ -1,4 +1,24 @@
+# Stress Granule analysis
 
+A Python script to analyse images.
+## Installation
+To use the code, a few python package need to be installed.
+```
+conda create -n sganalysis
+conda activate sganalysis
+conda install pytorch torchvision cudatoolkit=10.2 -c pytorch
+conda install tifffile scikit-image pandas
+conda install -c conda-forge jupyterlab
+python -m pip install edt
+python -m pip install cellpose
+```
+
+## Usage
+1. Create a list of files to process in a table listing relative file path, condition, etc.. using for example the macro [Parse_Folder.ijm](https://raw.githubusercontent.com/jboulanger/imagej-macro/main/File_Conversion/Parse_Folders.ijm)
+2. Call the script on the created file list, using the macro [Launch_Job_Array.ijm](https://raw.githubusercontent.com/jboulanger/imagej-macro/main/Cluster_Job/Launch_Job_Array.ijm) using the table as input.
+3. Open and run the notebook figures.ipynb to create figures from the results files.
+
+## Images and features
 
 Images have 4 channels
 1. DAPI

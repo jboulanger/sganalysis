@@ -39,7 +39,7 @@ def projection(data):
     return np.stack(mip,axis=0)
 
 def segment_cells(img,pixel_size,scale):
-     print('  Segmenting cells')
+    print('  Segmenting cells')
     d = 1000*scale/pixel_size[-1]
     model = models.Cellpose(gpu=True, model_type='cyto2')
     mask, flows, styles, diams = model.eval(img, diameter=d, flow_threshold=None, channels=[0,1])
@@ -360,11 +360,11 @@ def process(args):
     id = args.index - 1
     filelist = pd.read_csv(args.file_list)
     if args.data_path is not None:
-        filename = os.path.join(args.data_path, filelist['filename'][idx])
+        filename = os.path.join(args.data_path, filelist['filename'][id])
     else:
-        filename = filelist['filename'][idx]
+        filename = filelist['filename'][id]
 
-    fov =  filelist['fov'][idx]
+    fov =  filelist['fov'][id]
     print('File:',filename)
     print('Filed of view:', fov)
 

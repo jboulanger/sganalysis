@@ -166,7 +166,7 @@ class SGA:
             "Mean intensity in cell of granule channel" : mean_cell[self.granule_channel],
             "Mean intensity in cell of other channel"   : mean_cell[self.other_channel],
             "Total Intensity in cell of granule channel": sum_cell[self.granule_channel],
-            "Total Intensity in celll of other channel"  : sum_cell[self.other_channel],
+            "Total Intensity in cell of other channel"  : sum_cell[self.other_channel],
             "Mean intensity in cytosol of granule channel" : mean_cytosol[self.granule_channel],
             "Mean intensity in cytosol of other channel"   : mean_cytosol[self.other_channel],
             "Total Intensity in cytosol of granule channel": sum_cytosol[self.granule_channel],

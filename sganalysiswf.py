@@ -53,6 +53,7 @@ def segment_cells(img,pixel_size,scale):
     d = 1000*scale/pixel_size[-1]
     model = models.Cellpose(gpu=True, model_type='cyto2')
     mask, flows, styles, diams = model.eval(img, diameter=d, flow_threshold=None, channels=[0,1])
+    print('  done')
     return mask
 
 def segment_nuclei(img,pixel_size,scale):

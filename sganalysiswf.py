@@ -13,13 +13,14 @@ import pandas as pd
 from pathlib import Path
 import glob, os
 import json
+import nd2
 
 def get_nd2_number_of_positions(filename):
     with ND2Reader(filename) as images:
         n = images.sizes['v']
     return n
 
-def load_nd2(filename, fov=0):
+def load_nd2old(filename, fov=0):
     """Load all z planes and channels images from a multi-position file"""
     planes = []
     with ND2Reader(filename) as images:
@@ -30,6 +31,15 @@ def load_nd2(filename, fov=0):
                 planes.append(images.get_frame_2D(c=c, t=0, z=z, x=0, y=0, v=fov))
     shp = [images.sizes['z'], images.sizes['c'], images.sizes['y'], images.sizes['x']]
     return np.reshape(np.stack(planes), shp), pixel_size
+
+def load_nd2(filename, fov=0):
+    """Load all z planes and channels images from a multi-position file"""
+    f = nd2.ND2File(filename)
+    data = f.to_dask()
+    img = data[fov].compute()
+    pixel_size = px = [1000.*p for p in f.metadata.channels[0].volume.axesCalibration]
+    pixel_size.reverse()
+    return img, pixel_size
 
 def projection(data):
     mip = []
@@ -213,8 +223,8 @@ def measure_roi_stats(roi, img, masks, distances):
         stats['Mean intensity ratio particle:cytosol of channel other'] = stats['Mean intensity in particle of ' + c + ' channel'] / stats['Mean intensity in cytosol of ' + c + ' channel']
 
     # colocalization
-    I1 = img['granule'][masks['cell']]
-    I2 = img['other'][masks['cell']]
+    I1 = img['granule'][masks['cell']].astype(float)
+    I2 = img['other'][masks['cell']].astype(float)
     stats['Colocalization spearman granule:other' ] = spearmanr(I1,I2)[0]
     stats['Colocalization pearson granule:other'] = pearsonr(I1,I2)[0]
 
@@ -366,7 +376,7 @@ def process(args):
 
     fov =  filelist['fov'][id]
     print('File:',filename)
-    print('Filed of view:', fov)
+    print('Field of view:', fov)
 
     if args.config is not None:
         with open(args.config,'r') as configfile:

@@ -11,6 +11,7 @@ conda install tifffile scikit-image pandas
 conda install -c conda-forge jupyterlab
 python -m pip install edt
 python -m pip install cellpose
+python -m pip install nd2
 ```
 
 ## Usage

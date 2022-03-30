@@ -19,7 +19,7 @@ echo "Input file       : $1"
 @ line = ( $SLURM_ARRAY_TASK_ID + 1 )
 set row = `sed -n {$line}p $1`
 echo "Row              : $row"
-echo "Data location    : $3"
+echo "Data location    : $2"
 
 # activate the python environment (may need to point to path)
 conda activate sganalysis
@@ -30,7 +30,7 @@ if ( ! -f sganalysiswf.py ) then
     wget https://raw.githubusercontent.com/jboulanger/sganalysis/master/sganalysiswf.py
 endif
 
-set dst = $3/results
+set dst = $2/results
 if ( ! -d "$dst" ) then
     echo "Creating destination folder $dst"
     mkdir "$dst"
@@ -38,7 +38,7 @@ endif
 
 python sganalysiswf.py process \
     --file-list $1 \
-    --data-path $3 \
+    --data-path $2 \
     --index $SLURM_ARRAY_TASK_ID  \
     --output-by-cells "$dst"/cells-$SLURM_ARRAY_TASK_ID.csv \
     --output-vignette "$dst"/vignettes-$SLURM_ARRAY_TASK_ID.png

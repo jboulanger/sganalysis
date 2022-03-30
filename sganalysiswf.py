@@ -352,14 +352,14 @@ def process(args):
     """Sub command for processing item from a list of file/fov"""
 
     print("[ process ]")
-
+    id = args.index - 1
     filelist = pd.read_csv(args.file_list)
     if args.data_path is not None:
-        filename = os.path.join(args.data_path, filelist['filename'][args.index])
+        filename = os.path.join(args.data_path, filelist['filename'][idx])
     else:
-        filename = filelist['filename'][args.index]
+        filename = filelist['filename'][idx]
 
-    fov =  filelist['fov'][args.index]
+    fov =  filelist['fov'][idx]
     print('File:',filename)
     print('Filed of view:', fov)
 

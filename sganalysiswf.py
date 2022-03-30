@@ -20,7 +20,7 @@ def get_nd2_number_of_positions(filename):
         n = images.sizes['v']
     return n
 
-def load_nd2old(filename, fov=0):
+def load_nd2(filename, fov=0):
     """Load all z planes and channels images from a multi-position file"""
     planes = []
     with ND2Reader(filename) as images:
@@ -32,7 +32,7 @@ def load_nd2old(filename, fov=0):
     shp = [images.sizes['z'], images.sizes['c'], images.sizes['y'], images.sizes['x']]
     return np.reshape(np.stack(planes), shp), pixel_size
 
-def load_nd2(filename, fov=0):
+def load_nd2_sdk(filename, fov=0):
     """Load all z planes and channels images from a multi-position file"""
     f = nd2.ND2File(filename)
     data = f.to_dask()

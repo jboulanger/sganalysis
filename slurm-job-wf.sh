@@ -26,8 +26,17 @@ conda activate sganalysis
 
 # Download the script
 if ( ! -f sganalysiswf.py ) then
-    echo "Downloading script"
-    wget https://raw.githubusercontent.com/jboulanger/sganalysis/master/sganalysiswf.py
+    if ( ! -f mutex ) then
+        touch mutex
+        echo "Downloading script"
+        wget https://raw.githubusercontent.com/jboulanger/sganalysis/master/sganalysiswf.py
+        rm mutex
+    else
+        echo "Downloading script in a parallel job"
+        sleep 5s
+    endif
+else
+    echo "Script already installed"
 endif
 
 set dst = $2/results

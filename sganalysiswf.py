@@ -368,9 +368,12 @@ def process_fov(filename, position, config):
 
     stats = []
     for k,roi in enumerate(rois):
-        masks, img = compute_roi_masks(roi, labels, mip, border=0)
-        distances = compute_roi_distance(masks)
-        stats.append(measure_roi_stats(roi,img,masks,distances))
+        try :
+            masks, img = compute_roi_masks(roi, labels, mip, border=0)
+            distances = compute_roi_distance(masks)
+            stats.append(measure_roi_stats(roi,img,masks,distances))
+        except:
+            print('Error encountered for ROI',k)
 
     stats = pd.DataFrame(stats)
 

@@ -1,6 +1,7 @@
 # Stress Granule analysis
 
-A Python script to analyse images.
+Python scripts to stress granule analyse images.
+
 ## Installation
 To use the code, a few python package need to be installed.
 ```
@@ -11,7 +12,7 @@ conda install tifffile scikit-image pandas
 conda install -c conda-forge jupyterlab
 python -m pip install edt
 python -m pip install cellpose
-python -m pip install nd2
+python -m pip install nd2reader
 ```
 
 ## Usage

@@ -121,7 +121,7 @@ def show_image(img, labels, rois):
     for r in rois:
         c = find_contours(ndimage.binary_erosion(labels['cells']==r.label), 0.5)
         plt.plot(c[0][:,1],c[0][:,0])
-
+        plt.text(r.centroid[1], r.centroid[0], f'{r.label}', color='white')
 
     for r in np.unique(labels['nuclei']):
         if r > 0:
@@ -384,11 +384,11 @@ def scan(args):
     os.chdir(folder)
     L = []
     for file in glob.glob("*.nd2"):
+        condition = file.split('_')[1].replace('Well','')
         with ND2Reader(file) as images:
             for fov in range(images.sizes['v']):
-                L.append({'filename':file,'fov':fov})
+                L.append({'filename':file,'fov':fov,'condition':condition})
     df = pd.DataFrame(L)
-
 
     if isinstance(args,argparse.Namespace):
         if args.file_list is not None:
@@ -449,7 +449,6 @@ def facet_plot(data,cols,columns=4):
 
 def make_figure(args):
     filelist = pd.read_csv(args.file_list)
-    #cells = pd.concat([pd.read_csv(os.path.join(args.data_path, 'results', f'cells-{id+1}.csv') ) for id in filelist['index']])
     cells = []
     for id in filelist['index']:
         filename = os.path.join(args.data_path, 'results', f'cells-{id+1}.csv')
@@ -459,7 +458,7 @@ def make_figure(args):
             print(f'could not load file {filename}')
     cells = pd.concat(cells)
     cells = pd.merge(cells,filelist,left_on='index',right_on='index')
-    cells.to_csv(os.path.join(args.data_path, 'results/cells.csv'))
+    cells.to_csv(os.path.join(args.data_path, 'results', 'cells.csv'))
     sns.set()
     sns.set_style("ticks")
     facet_plot(cells,cells.columns[2:-4],4)

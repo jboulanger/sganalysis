@@ -448,10 +448,18 @@ def facet_plot(data,cols,columns=4):
                 sns.despine(left=True)
 
 def make_figure(args):
-    filelist = pd.read_csv(args.filelist)
-    cells = pd.concat([pd.read_csv(f) for f in filelist['filename']])
+    filelist = pd.read_csv(args.file_list)
+    #cells = pd.concat([pd.read_csv(os.path.join(args.data_path, 'results', f'cells-{id+1}.csv') ) for id in filelist['index']])
+    cells = []
+    for id in filelist['index']:
+        filename = os.path.join(args.data_path, 'results', f'cells-{id+1}.csv')
+        try:
+            cells.append(pd.read_csv(filename))
+        except:
+            print(f'could not load file {filename}')
+    cells = pd.concat(cells)
     cells = pd.merge(cells,filelist,left_on='index',right_on='index')
-    cells.to_csv(os.path.join(args.data_path, 'cells.csv'))
+    cells.to_csv(os.path.join(args.data_path, 'results/cells.csv'))
     sns.set()
     sns.set_style("ticks")
     facet_plot(cells,cells.columns[2:-4],4)

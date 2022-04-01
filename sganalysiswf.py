@@ -464,7 +464,7 @@ def make_figure(args):
 
     sns.set()
     sns.set_style("ticks")
-    facet_plot(cells,cells.columns[2:-4],6)
+    facet_plot(cells,cells.columns[2:-4],8)
     figname = os.path.join(args.data_path, 'results', 'cells.pdf')
     print(f'Saving figure to file {figname}')
     plt.savefig(figname)

@@ -458,11 +458,16 @@ def make_figure(args):
             print(f'could not load file {filename}')
     cells = pd.concat(cells)
     cells = pd.merge(cells,filelist,left_on='index',right_on='index')
-    cells.to_csv(os.path.join(args.data_path, 'results', 'cells.csv'))
+    csvname = os.path.join(args.data_path, 'results', 'cells.csv')
+    print(f'Saving tale to file {csvname}')
+    cells.to_csv(csvname)
+
     sns.set()
     sns.set_style("ticks")
     facet_plot(cells,cells.columns[2:-4],6)
-    plt.savefig(os.path.join(args.data_path, 'results', 'cells.pdf'))
+    figname = os.path.join(args.data_path, 'results', 'cells.pdf')
+    print(f'Saving figure to file {figname}')
+    plt.savefig(figname)
 
 def main():
 

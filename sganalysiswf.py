@@ -223,7 +223,9 @@ def measure_roi_stats(roi, img, masks, distances):
 
     # compute ratio of mean intensity for channels granule and other
     for c in ['granule','other']:
-        stats['Mean intensity ratio particle:cytosol of channel other'] = stats['Mean intensity in particle of ' + c + ' channel'] / stats['Mean intensity in cytosol of ' + c + ' channel']
+        bot = stats['Mean intensity in cytosol of ' + c + ' channel']
+        top = stats['Mean intensity in particle of ' + c + ' channel']
+        stats['Mean intensity ratio particle:cytosol of channel other'] = top / bot if bot > 0 else 0
 
     # colocalization
     I1 = img['granule'][masks['cell']].astype(float)

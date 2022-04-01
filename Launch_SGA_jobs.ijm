@@ -1,18 +1,17 @@
 #@String (label="Username", value="username", description="Username on the host") username
 #@String (label="Host", value="hex", description="hostname to which command are send") hostname
 #@File(label="Folder", value="", style="directory",description="Path to the data folder from this computer") folder
-#@String(label="Action",choices={"Install","Scan","Process","Figure"}) action
+#@String(label="Action",choices={"Install","Scan","Process","Figure","List Jobs"}) action
 #@File (label="Local share",description="Local mounting point of the network share", style="directory") local_share
 #@String (label="Remote share",description="Remote mounting point of the network share", value="/cephfs/") remote_share
 
 /*
- * Launch a slurm job with the file filename as input using a template script
+ * Launch slurm jobs for stress granule analysis
  * 
- * Jerome Boulanger 2021 
+ * Jerome Boulanger 2021-22
  */
 
 
-delay = 500; // artificial delays that prevent denial of service 
 remote_path = replace(convert_slash(folder), convert_slash(local_share), remote_share);
 remote_jobs_dir = remote_share + "/jobs";
 local_jobs_dir = local_share + File.separator + "jobs";
@@ -35,6 +34,8 @@ if (matches(action, "Scan")) {
 	figure();	
 } else if (matches(action, "Install"))  {
 	install();
+} else if (matches(action, "List Jobs"))  {
+	listjobs();
 }
 
 function install() {
@@ -55,7 +56,7 @@ function scan() {
 function process() {
 	print("process");
 	if (!File.exists(folder+File.separator+"results")) {
-		print("Creating result directory");
+		print("Creating results directory");
 		File.makeDirectory(folder+File.separator+"results");
 	}	
 	jobname = "sga-process.sh";
@@ -74,6 +75,26 @@ function figure() {
 	File.saveString(str,local_jobs_dir+File.separator+jobname);		
 	ret = exec("ssh", username+"@"+hostname, "sbatch", "--chdir", remote_jobs_dir, jobname);
 	print(ret);	
+}
+
+function listjobs() {
+	
+	if (isOpen("Results")) { selectWindow("Results"); run("Close"); }
+	ret = exec("ssh", username+"@"+hostname, "squeue -u "+username);
+	lines = split(ret,"\n");
+	if (lines.length == 1) {
+		print("No jobs are running");
+	}
+	
+	for (i = 1; i < lines.length; i++) {
+		elem = split(lines[i]," ");	
+		setResult("JOBID",i-1,elem[0]);
+		setResult("PARTITION",i-1,elem[1]);
+		setResult("NAME",i-1,elem[2]);
+		setResult("USER",i-1,elem[3]);
+		setResult("STATUS",i-1,elem[4]);
+		setResult("TIME",i-1,elem[5]);
+	}
 }
 
 function convert_slash(src) {

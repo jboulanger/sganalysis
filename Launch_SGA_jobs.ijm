@@ -17,7 +17,7 @@ remote_path = replace(convert_slash(folder), convert_slash(local_share), remote_
 remote_jobs_dir = remote_share + "/jobs";
 local_jobs_dir = local_share + File.separator + "jobs";
 script_url = "https://raw.githubusercontent.com/jboulanger/sganalysis/master/sganalysiswf.py";
-sript_name = "sganalysiswf.py";
+script_name = "sganalysiswf.py";
 
 // create a job folder if needed
 if (File.exists(local_jobs_dir) != 1) {
@@ -69,7 +69,7 @@ function process() {
 
 function figure() {
 	print("figure");
-	jobname = "sga-scan.sh";
+	jobname = "sga-fig.sh";
 	str  = "#!/bin/tcsh\n#SBATCH --job-name=sg-fig\n#SBATCH --time=01:00:00\nconda activate sganalysis\npython sganalysiswf.py figure --data-path=\""+remote_path+"\" --file-list \""+remote_path+"/filelist.csv\"";
 	File.saveString(str,local_jobs_dir+File.separator+jobname);		
 	ret = exec("ssh", username+"@"+hostname, "sbatch", "--chdir", remote_jobs_dir, jobname);

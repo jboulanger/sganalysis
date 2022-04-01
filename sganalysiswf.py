@@ -461,7 +461,7 @@ def make_figure(args):
     cells.to_csv(os.path.join(args.data_path, 'results', 'cells.csv'))
     sns.set()
     sns.set_style("ticks")
-    facet_plot(cells,cells.columns[2:-4],4)
+    facet_plot(cells,cells.columns[2:-4],6)
     plt.savefig(os.path.join(args.data_path,'cells.pdf'))
 
 def main():

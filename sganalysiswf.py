@@ -1,3 +1,4 @@
+"""Stress Granule Analysis in wide field imaging"""
 import argparse
 import matplotlib.pyplot as plt
 import numpy as np
@@ -13,7 +14,8 @@ import pandas as pd
 from pathlib import Path
 import glob, os
 import json
-import nd2
+import nd2 # did not work on the cluster
+import seaborn as sns
 
 def get_nd2_number_of_positions(filename):
     with ND2Reader(filename) as images:
@@ -304,6 +306,36 @@ def deconvolve_richardson_lucy(data, otf, background=0, iterations=100):
         estimate = estimate * np.real(np.fft.ifftn(otf * np.fft.fftn(ratio)))
     return estimate
 
+def deconvolve_richardson_lucy_heavy_ball(data, otf, background, iterations):
+    """
+    Deconvolve data according to the given otf using a scaled heavy ball Richardson-Lucy algorithm
+    Parameters
+    ----------
+    data       : numpy array
+    otf        : numpy array of the same size than data
+    iterations : number of iterations
+    Result
+    ------
+    estimate   : estimated image
+    dkl        : the kullback leibler divergence (should tend to 1/2)
+    Note
+    ----
+    https://doi.org/10.1109/tip.2013.2291324
+    """
+    old_estimate = np.clip(np.real(np.fft.ifftn(otf * np.fft.fftn(data - background))), a_min=0, a_max=None)
+    estimate = data
+    dkl = np.zeros(iterations)
+    for k in range(iterations):
+        beta = (k-1.0) / (k+2.0)
+        prediction = estimate + beta * (estimate -  old_estimate)
+        blurred = np.clip(np.real(np.fft.ifftn(otf * np.fft.fftn(prediction + background))), a_min=1e-6, a_max=None)
+        ratio = data / blurred
+        gradient = 1.0 - np.real(np.fft.ifftn(otf * np.fft.fftn(ratio)))
+        old_estimate = estimate
+        estimate = np.clip(prediction - estimate * gradient, a_min=0.1, a_max=None)
+        dkl[k] = np.mean(blurred - data + data * np.log(np.clip(ratio,a_min=1e-6, a_max=None)))
+    return estimate, dkl
+
 def correct_hotpixels_inplace(data):
     baseline = ndimage.median_filter(data, size=3)
     delta = data - baseline
@@ -321,7 +353,7 @@ def deconvolve_all_channels(data,pixel_size,config):
         img = np.squeeze(data[:,k,:,:,])
         correct_hotpixels_inplace(img)
         otf,psf = generate_otf3d(img.shape,pixel_size,wavelengths[k],NA,medium_refractive_index)
-        dec.append(deconvolve_richardson_lucy(img,otf,img.min(),30))
+        dec.append(deconvolve_richardson_lucy_heavy_ball(img,otf,img.min(),10))
     return np.stack(dec, axis=1)
 
 def process_fov(filename, position, config):
@@ -356,10 +388,12 @@ def scan(args):
             for fov in range(images.sizes['v']):
                 L.append({'filename':file,'fov':fov})
     df = pd.DataFrame(L)
+
+
     if isinstance(args,argparse.Namespace):
-        if args.output is not None:
-            print(f'Saving filelist table to csv file')
-            df.to_csv(args.output)
+        if args.file_list is not None:
+            print(f'Saving filelist table to csv file {args.file_list}')
+            df.to_csv(args.file_list,index_label='index')
         else:
             print(df)
     return df
@@ -399,7 +433,29 @@ def process(args):
         print(f'Saving vignette to file {args.output_vignette}')
         plt.figure(figsize=(20,20))
         show_image(mip,labels,rois)
+        name = filelist['filename'][id]
+        plt.title(f'#{id} file:{name} fov:{fov}')
         plt.savefig(args.output_vignette)
+
+def facet_plot(data,cols,columns=4):
+    import math
+    rows = math.ceil(len(cols)/columns)
+    fig, ax = plt.subplots(rows,columns,figsize=(6*columns,6*rows))
+    for r in range(rows):
+        for c in range(columns):
+            if columns * r + c < len(cols)-1:
+                sns.boxplot(data=data,x="condition",y=cols[columns*r+c],ax=ax[r,c])
+                sns.despine(left=True)
+
+def make_figure(args):
+    filelist = pd.read_csv(args.filelist)
+    cells = pd.concat([pd.read_csv(f) for f in filelist['filename']])
+    cells = pd.merge(cells,filelist,left_on='index',right_on='index')
+    cells.to_csv(os.path.join(args.data_path, 'cells.csv'))
+    sns.set()
+    sns.set_style("ticks")
+    facet_plot(cells,cells.columns[2:-4],4)
+    plt.savefig(os.path.join(args.data_path,'cells.pdf'))
 
 def main():
 
@@ -410,7 +466,7 @@ def main():
     # add the scan subparser
     parser_scan = subparsers.add_parser('scan', help='scan help')
     parser_scan.add_argument('--data-path',help='folder to scan',required=True)
-    parser_scan.add_argument('--output',help='output (csv) file')
+    parser_scan.add_argument('--file-list',help='filelist')
     parser_scan.set_defaults(func=scan)
 
     # add the process subparser
@@ -422,6 +478,12 @@ def main():
     parser_process.add_argument('--output-by-cells',help='filename of the output csv table by cell')
     parser_process.add_argument('--output-vignette',help='filename of the output vignette file')
     parser_process.set_defaults(func=process)
+
+    # add the figure subparser
+    parser_process = subparsers.add_parser('figure', help='process help')
+    parser_process.add_argument('--data-path',help='path to data')
+    parser_process.add_argument('--file-list',help='filelist',required=True)
+    parser_process.set_defaults(func=make_figure)
 
     args = parser.parse_args()
     args.func(args)

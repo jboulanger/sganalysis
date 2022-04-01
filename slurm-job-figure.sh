@@ -9,19 +9,13 @@
 # use squeue -u $USER to monitor the job
 ############################
 
-#SBATCH --job-name=sganalysiswf
+#SBATCH --job-name=sganalysiswf-scan
 #SBATCH --time=01:00:00
-#SBATCH --partition=gpu
-#SBATCH --gres=gpu:1
 
 echo "Working directory: `pwd`"
 echo "Hostname         : `hostname`"
 echo "Starting time    : `date`"
-echo "Array task id    : $SLURM_ARRAY_TASK_ID"
 echo "Input file       : $1"
-@ line = ( $SLURM_ARRAY_TASK_ID + 1 )
-set row = `sed -n {$line}p $1`
-echo "Row              : $row"
 echo "Data location    : $2"
 
 # activate the python environment (may need to point to path)
@@ -48,11 +42,8 @@ if ( ! -d "$dst" ) then
     mkdir "$dst"
 endif
 
-python sganalysiswf.py process \
+python sganalysiswf.py figure \
     --file-list $1 \
     --data-path $2 \
-    --index $SLURM_ARRAY_TASK_ID  \
-    --output-by-cells "$dst"/cells-$SLURM_ARRAY_TASK_ID.csv \
-    --output-vignette "$dst"/vignettes-$SLURM_ARRAY_TASK_ID.png
 
 echo "Finishing time   : `date`"

@@ -381,18 +381,29 @@ def process_fov(filename, position, config):
 
 def scan(args):
     """Scan a folder of nd2 files and list the field of views (fov)"""
-    print("scan")
+    print("[ Scan ]")
     if isinstance(args, argparse.Namespace):
         folder = args.data_path
     else:
         folder = args
+    print(f"Scanning folder : {args.data_path}")
+    print(f"Output file list : {args.file_list}")
     os.chdir(folder)
     L = []
+    config = None
     for file in glob.glob("*.nd2"):
+        print(f'Scanning file {file}')
         condition = file.split('_')[1].replace('Well','')
-        with ND2Reader(file) as images:
-            for fov in range(images.sizes['v']):
-                L.append({'filename':file,'fov':fov,'condition':condition})
+        try:
+            with ND2Reader(file) as images:
+                for fov in range(images.sizes['v']):
+                    L.append({'filename':file,'fov':fov,'condition':condition})
+                if config is None:
+                    nchannels = images.sizes['c']
+                    config = {"channels":[{"index":k,"name":"undefined","wavelength":0} for k in range(nchannels)], "NA":0.95,"medium_refractive_index":1.4,"scale_um":50}
+        except:
+            print("An error occured on this file")
+
     df = pd.DataFrame(L)
 
     if isinstance(args,argparse.Namespace):
@@ -401,6 +412,15 @@ def scan(args):
             df.to_csv(args.file_list,index_label='index')
         else:
             print(df)
+
+    if isinstance(args,argparse.Namespace):
+        if args.config is not None:
+            print(f'Saving configuration to json file {args.config}')
+            with open(args.config) as fp:
+                json.dump(config, fp)
+        else:
+            print(df)
+
     return df
 
 def process(args):

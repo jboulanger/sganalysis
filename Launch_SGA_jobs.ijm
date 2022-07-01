@@ -8,6 +8,12 @@
 /*
  * Launch slurm jobs for stress granule analysis
  * 
+ * Workflow :
+ * 1. Install the script
+ * 2. Scan the folder where the files are and create a filelist.csv saved in that folder
+ * 3. Process the file list, open the table and create jobs for each file to run on the cluster
+ * 4. Make a figure with all the individual results.
+ * 
  * Jerome Boulanger 2021-22
  */
 
@@ -39,13 +45,18 @@ if (matches(action, "Scan")) {
 }
 
 function install() {
+	print("Installing script");
+	print("Download the python script and save it in the job folder");
 	str = File.openUrlAsString(script_url);
 	dst = local_jobs_dir + File.separator + "sganalysiswf.py";
 	File.saveString(str,local_jobs_dir+File.separator+script_name);	
 }
 
 function scan() {
-	print("scan");
+	print("Scanning data folder");
+	print("List all files in the data folder and create a filelist.csv file.");
+	print(" Remote path " + remote_path);
+	print(" File list " + remote_path+"/filelist.csv");
 	jobname = "sga-scan.sh";
 	str  = "#!/bin/tcsh\n#SBATCH --job-name=sg-scan\n#SBATCH --time=01:00:00\nconda activate sganalysis\npython sganalysiswf.py scan --data-path=\""+remote_path+"\" --file-list \""+remote_path+"/filelist.csv\"";
 	File.saveString(str,local_jobs_dir+File.separator+jobname);		
@@ -54,7 +65,8 @@ function scan() {
 }
 
 function process() {
-	print("process");
+	print("Process a list of files");
+	print("Open filelist.csv and create a job for each time.");
 	if (!File.exists(folder+File.separator+"results")) {
 		print("Creating results directory");
 		File.makeDirectory(folder+File.separator+"results");
@@ -69,7 +81,8 @@ function process() {
 }
 
 function figure() {
-	print("figure");
+	print("Figure");
+	print("Collect results")
 	jobname = "sga-fig.sh";
 	str  = "#!/bin/tcsh\n#SBATCH --job-name=sg-fig\n#SBATCH --time=01:00:00\nconda activate sganalysis\npython sganalysiswf.py figure --data-path=\""+remote_path+"\" --file-list \""+remote_path+"/filelist.csv\"";
 	File.saveString(str,local_jobs_dir+File.separator+jobname);		

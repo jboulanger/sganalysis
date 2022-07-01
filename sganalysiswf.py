@@ -404,6 +404,10 @@ def scan(args):
         except:
             print("An error occured on this file")
 
+    if len(L) == 0:
+        print("Could not scan any file")
+        return None
+
     df = pd.DataFrame(L)
 
     if isinstance(args,argparse.Namespace):
@@ -415,9 +419,10 @@ def scan(args):
 
     if isinstance(args,argparse.Namespace):
         if args.config is not None:
-            print(f'Saving configuration to json file {args.config}')
-            with open(args.config) as fp:
-                json.dump(config, fp)
+            if os.path.exists(args.config) is False:
+                print(f'Saving configuration to json file {args.config}')
+                with open(args.config) as fp:
+                    json.dump(config, fp)
         else:
             print(df)
 
@@ -504,6 +509,7 @@ def main():
     parser_scan = subparsers.add_parser('scan', help='scan help')
     parser_scan.add_argument('--data-path',help='folder to scan',required=True)
     parser_scan.add_argument('--file-list',help='filelist')
+    parser_process.add_argument('--config',help='json configuration file')
     parser_scan.set_defaults(func=scan)
 
     # add the process subparser

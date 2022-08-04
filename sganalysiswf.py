@@ -421,17 +421,15 @@ def scan(args):
         if args.config is not None:
             if os.path.exists(args.config) is False:
                 print(f'Saving configuration to json file {args.config}')
-                with open(args.config) as fp:
+                with open(args.config, "w") as fp:
                     json.dump(config, fp)
-        else:
-            print(df)
 
     return df
 
 def process(args):
     """Sub command for processing item from a list of file / fov"""
 
-    print("[ process ]")
+    print("[ Process ]")
     id = args.index - 1
     filelist = pd.read_csv(args.file_list)
     if args.data_path is not None:
@@ -479,8 +477,12 @@ def facet_plot(data,cols,columns=4):
 
 def make_figure(args):
     """make a figure
-    args has file_list and data_path as attribute
+
+    The parameter args has file_list and data_path as attribute
+
+    Save a cells.csv and cells.pdf file in {data_path}/results
     """
+    print("[ Figure ]")
     filelist = pd.read_csv(args.file_list)
     cells = []
     for id in filelist['index']:
@@ -492,7 +494,7 @@ def make_figure(args):
     cells = pd.concat(cells)
     cells = pd.merge(cells,filelist,left_on='index',right_on='index')
     csvname = os.path.join(args.data_path, 'results', 'cells.csv')
-    print(f'Saving tale to file {csvname}')
+    print(f'Saving data to file {csvname}')
     cells.to_csv(csvname)
 
     sns.set()

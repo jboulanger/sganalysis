@@ -7,13 +7,13 @@
 
 /*
  * Launch slurm jobs for stress granule analysis
- * 
+ *
  * Workflow :
  * 1. Install the script
  * 2. Scan the folder where the files are and create a filelist.csv saved in that folder
  * 3. Process the file list, open the table and create jobs for each file to run on the cluster
  * 4. Make a figure with all the individual results.
- * 
+ *
  * Jerome Boulanger 2021-22
  */
 
@@ -37,7 +37,7 @@ if (matches(action, "Scan")) {
 } else if (matches(action, "Process")) {
 	process();
 }else if (matches(action, "Figure")) {
-	figure();	
+	figure();
 } else if (matches(action, "Install"))  {
 	install();
 } else if (matches(action, "List Jobs"))  {
@@ -49,7 +49,7 @@ function install() {
 	print("Download the python script and save it in the job folder");
 	str = File.openUrlAsString(script_url);
 	dst = local_jobs_dir + File.separator + "sganalysiswf.py";
-	File.saveString(str,local_jobs_dir+File.separator+script_name);	
+	File.saveString(str,local_jobs_dir+File.separator+script_name);
 }
 
 function scan() {
@@ -58,10 +58,11 @@ function scan() {
 	print(" Remote path " + remote_path);
 	print(" File list " + remote_path+"/filelist.csv");
 	jobname = "sga-scan.sh";
-	str  = "#!/bin/tcsh\n#SBATCH --job-name=sg-scan\n#SBATCH --time=01:00:00\nconda activate sganalysis\npython sganalysiswf.py scan --data-path=\""+remote_path+"\" --file-list \""+remote_path+"/filelist.csv\"";
-	File.saveString(str,local_jobs_dir+File.separator+jobname);		
+	str  = "#!/bin/tcsh\n#SBATCH --job-name=sg-scan\n#SBATCH --time=01:00:00\nconda activate sganalysis\npython sganalysiswf.py scan --data-path=\""+remote_path+"\" --file-list \""+remote_path+"/filelist.csv\" --config \""+remote_path+"/config.json\"";	
+	File.saveString(str,local_jobs_dir+File.separator+jobname);
 	ret = exec("ssh", username+"@"+hostname, "sbatch", "--chdir", remote_jobs_dir, jobname);
 	print(ret);
+	print("Edit channel orders in the config.json file");	
 }
 
 function process() {
@@ -70,7 +71,7 @@ function process() {
 	if (!File.exists(folder+File.separator+"results")) {
 		print("Creating results directory");
 		File.makeDirectory(folder+File.separator+"results");
-	}	
+	}
 	jobname = "sga-process.sh";
 	str  = "#!/bin/tcsh\n#SBATCH --job-name=sga-process\n#SBATCH --time=05:00:00\n#SBATCH --partition=gpu\n#SBATCH --gres=gpu:1\nconda activate sganalysis\npython sganalysiswf.py process --data-path=\""+remote_path+"\" --file-list \""+remote_path+"/filelist.csv\" --index $SLURM_ARRAY_TASK_ID --output-by-cells \""+remote_path+"\"/results/cells-$SLURM_ARRAY_TASK_ID.csv --output-vignette \""+remote_path+"\"/results/vignettes-$SLURM_ARRAY_TASK_ID.png";
 	File.saveString(str,local_jobs_dir+File.separator+jobname);
@@ -85,22 +86,22 @@ function figure() {
 	print("Collect results")
 	jobname = "sga-fig.sh";
 	str  = "#!/bin/tcsh\n#SBATCH --job-name=sg-fig\n#SBATCH --time=01:00:00\nconda activate sganalysis\npython sganalysiswf.py figure --data-path=\""+remote_path+"\" --file-list \""+remote_path+"/filelist.csv\"";
-	File.saveString(str,local_jobs_dir+File.separator+jobname);		
+	File.saveString(str,local_jobs_dir+File.separator+jobname);
 	ret = exec("ssh", username+"@"+hostname, "sbatch", "--chdir", remote_jobs_dir, jobname);
-	print(ret);	
+	print(ret);
 }
 
 function listjobs() {
-	
+
 	if (isOpen("Results")) { selectWindow("Results"); run("Close"); }
 	ret = exec("ssh", username+"@"+hostname, "squeue -u "+username);
 	lines = split(ret,"\n");
 	if (lines.length == 1) {
 		print("No jobs are running");
 	}
-	
+
 	for (i = 1; i < lines.length; i++) {
-		elem = split(lines[i]," ");	
+		elem = split(lines[i]," ");
 		setResult("JOBID",i-1,elem[0]);
 		setResult("PARTITION",i-1,elem[1]);
 		setResult("NAME",i-1,elem[2]);

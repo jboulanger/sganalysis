@@ -14,7 +14,7 @@ import pandas as pd
 from pathlib import Path
 import glob, os
 import json
-import nd2 # did not work on the cluster
+#import nd2 # did not work on the cluster
 import seaborn as sns
 
 def get_nd2_number_of_positions(filename):
@@ -34,14 +34,14 @@ def load_nd2(filename, fov=0):
     shp = [images.sizes['z'], images.sizes['c'], images.sizes['y'], images.sizes['x']]
     return np.reshape(np.stack(planes), shp), pixel_size
 
-def load_nd2_sdk(filename, fov=0):
-    """Load all z planes and channels images from a multi-position file"""
-    f = nd2.ND2File(filename)
-    data = f.to_dask()
-    img = data[fov].compute()
-    pixel_size = px = [1000.*p for p in f.metadata.channels[0].volume.axesCalibration]
-    pixel_size.reverse()
-    return img, pixel_size
+#def load_nd2_sdk(filename, fov=0):
+#    """Load all z planes and channels images from a multi-position file"""
+#    f = nd2.ND2File(filename)
+#    data = f.to_dask()
+#   img = data[fov].compute()
+#    pixel_size = px = [1000.*p for p in f.metadata.channels[0].volume.axesCalibration]
+#    pixel_size.reverse()
+#    return img, pixel_size
 
 def projection(data):
     mip = []
@@ -429,7 +429,7 @@ def scan(args):
     return df
 
 def process(args):
-    """Sub command for processing item from a list of file/fov"""
+    """Sub command for processing item from a list of file / fov"""
 
     print("[ process ]")
     id = args.index - 1
@@ -478,6 +478,9 @@ def facet_plot(data,cols,columns=4):
                 sns.despine(left=True)
 
 def make_figure(args):
+    """make a figure
+    args has file_list and data_path as attribute
+    """
     filelist = pd.read_csv(args.file_list)
     cells = []
     for id in filelist['index']:
@@ -509,7 +512,7 @@ def main():
     parser_scan = subparsers.add_parser('scan', help='scan help')
     parser_scan.add_argument('--data-path',help='folder to scan',required=True)
     parser_scan.add_argument('--file-list',help='filelist')
-    parser_process.add_argument('--config',help='json configuration file')
+    parser_scan.add_argument('--config',help='json configuration file')
     parser_scan.set_defaults(func=scan)
 
     # add the process subparser
@@ -523,10 +526,10 @@ def main():
     parser_process.set_defaults(func=process)
 
     # add the figure subparser
-    parser_process = subparsers.add_parser('figure', help='process help')
-    parser_process.add_argument('--data-path',help='path to data')
-    parser_process.add_argument('--file-list',help='filelist',required=True)
-    parser_process.set_defaults(func=make_figure)
+    parser_figure = subparsers.add_parser('figure', help='process help')
+    parser_figure.add_argument('--data-path',help='path to data')
+    parser_figure.add_argument('--file-list',help='filelist',required=True)
+    parser_figure.set_defaults(func=make_figure)
 
     args = parser.parse_args()
     args.func(args)

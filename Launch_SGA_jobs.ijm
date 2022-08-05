@@ -17,6 +17,7 @@
  * Jerome Boulanger 2021-22
  */
 
+print("\n\n__________SGA______________");
 
 remote_path = replace(convert_slash(folder), convert_slash(local_share), remote_share);
 remote_jobs_dir = remote_share + "/jobs";
@@ -26,7 +27,7 @@ script_name = "sganalysiswf.py";
 
 // create a job folder if needed
 if (File.exists(local_jobs_dir) != 1) {
-	print("Create a jobs folder in " + local_share);
+	print("Creating a jobs folder in " + local_share);
 	File.makeDirectory(local_jobs_dir);
 } else {
 	print("Jobs folder already present in " + local_share);
@@ -47,27 +48,30 @@ if (matches(action, "Scan")) {
 }
 
 function install() {
-	print("Installing script");
-	print("Download the python script and save it in the job folder");
+	print("[ Installing script ]");
+	print("Downloading the python script and save it in the job folder");
 	str = File.openUrlAsString(script_url);
 	dst = local_jobs_dir + File.separator + "sganalysiswf.py";
 	File.saveString(str,local_jobs_dir+File.separator+script_name);
+	print("Done");
 }
 
 function scan() {
-	print("Scanning data folder");
+	print("[ Scanning data folder ]");
 	print("List all files in the data folder and create a filelist.csv file.");
-	print(" Remote path " + remote_path);
-	print(" File list " + remote_path+"/filelist.csv");
+	print(" - Remote path " + remote_path);
+	print(" - File list " + remote_path+"/filelist.csv");
 	jobname = "sga-scan.sh";
 	str  = "#!/bin/tcsh\n#SBATCH --job-name=sg-scan\n#SBATCH --time=01:00:00\nconda activate sganalysis\npython sganalysiswf.py scan --data-path=\""+remote_path+"\" --file-list \""+remote_path+"/filelist.csv\" --config \""+remote_path+"/config.json\"";	
 	File.saveString(str,local_jobs_dir+File.separator+jobname);
 	ret = exec("ssh", username+"@"+hostname, "sbatch", "--chdir", remote_jobs_dir, jobname);
-	print(ret);
-	print("Edit channel orders in the config.json file");	
+	print(" " + ret);
+	print(" Job is now running in the background, use 'List Jobs' to check completion.");
+	print(" Next: edit channel orders in the config.json file.");	
 }
 
 function config() {
+	print("[ Configuration file ]");
 	Dialog.create("Channel Configuration Tool");
 	Dialog.addString("Channels labels", "other,membrane,granule,nuclei");
 	Dialog.addString("Channels wavelength", "525,620,700,447");
@@ -84,14 +88,15 @@ function config() {
 			}
 	}
 	str += "],\"NA\":0.95,\"medium_refractive_index\":1.4, \"scale_um\":50}";
-	print(str);	
-	print("saving config in folder");
+	
+	print("Saving configuration file in folder");
 	print(folder+File.separator+"config.json");
 	File.saveString(str, folder+File.separator+"config.json");
+	print("Configuration file has been created, ready to process the dataset.");
 }
 
 function process() {
-	print("Process a list of files");
+	print("[ Processing a list of files ]");
 	print("Open filelist.csv and create a job for each time.");
 	if (!File.exists(folder+File.separator+"results")) {
 		print("Creating results directory");
@@ -104,11 +109,12 @@ function process() {
 	n = Table.size;
 	ret = exec("ssh", username+"@"+hostname, "sbatch", "--chdir", remote_jobs_dir,  "--array=1-"+n, jobname);
 	print(ret);
+	print("Job is running in the background, use 'List Jobs' to check completion.");
+	print("Next: create figures using the 'Figure' action.");	
 }
 
 function figure() {
-	print("Figure");
-	print("Collect results")
+	print("[ Preparing a figure ]");	
 	jobname = "sga-fig.sh";
 	str  = "#!/bin/tcsh\n#SBATCH --job-name=sg-fig\n#SBATCH --time=01:00:00\nconda activate sganalysis\npython sganalysiswf.py figure --data-path=\""+remote_path+"\" --file-list \""+remote_path+"/filelist.csv\"";
 	File.saveString(str,local_jobs_dir+File.separator+jobname);
@@ -117,7 +123,7 @@ function figure() {
 }
 
 function listjobs() {
-
+	print("[ List jobs ]");	
 	if (isOpen("Results")) { selectWindow("Results"); run("Close"); }
 	ret = exec("ssh", username+"@"+hostname, "squeue -u "+username);
 	lines = split(ret,"\n");

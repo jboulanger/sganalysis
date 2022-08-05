@@ -3,41 +3,65 @@
 Python scripts to stress granule analyse images.
 
 ## Installation
-To use the code, a few python package need to be installed.
+To run the code on a cluster, you might need to enable your slurm account and storage account.
+
+Then you'll need to enable a password less access to the cluster typing  in a terminal ```ssh-keygen``` on your system (press enter to all questions) followed by ```ssh-copy-id -i ~/.ssh/id_rsa.pub username@host```
+
+You need to install a python environement on the cluster. Connect in ssh to the host and download miniconda:
+```
+wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
+chmod +x Miniconda3-latest-Linux-x86_64.sh
+./Miniconda3-latest-Linux-x86_64.sh
+conda init tcsh
+```
+Then create an environement and install the packages
 ```
 conda create -n sganalysis
 conda activate sganalysis
 conda install pytorch torchvision cudatoolkit=10.2 -c pytorch
-conda install tifffile scikit-image pandas
-conda install -c conda-forge jupyterlab
-python -m pip install edt
-python -m pip install cellpose
-python -m pip install nd2reader
+conda install tifffile scikit-image pandas matplotlib seaborn
+python -m pip install edt cellpose nd2reader
 ```
 
+Download the ImageJ macro from this repository:
+[Launch_SGA_jobs.ijm](https://raw.githubusercontent.com/jboulanger/sganalysis/master/Launch_SGA_jobs.ijm)
+
+You need to connect your local system to the share drive accessible from the cluster using for example "connect to server" on a mac or "map network drive" in windows.
+
 ## Usage
-1. Create a list of files to process in a table listing relative file path, condition, etc.. using for example the macro [Parse_Folder.ijm](https://raw.githubusercontent.com/jboulanger/imagej-macro/main/File_Conversion/Parse_Folders.ijm)
-2. Call the script on the created file list, using the macro [Launch_Job_Array.ijm](https://raw.githubusercontent.com/jboulanger/imagej-macro/main/Cluster_Job/Launch_Job_Array.ijm) using the table as input.
-3. Open and run the notebook figures.ipynb to create figures from the results files.
+To process the data, you need to follow several steps which are all done from the ImageJ macro by choosing the "Action" parameter in the macro. The other parameters will not change:
+- Username : your username on the cluster (eg bob)
+- Host: the access node that you used previoulsy
+- Folder : the path to the nd2 files on your local system
+- Local share: the local mounting point of the network drive (eg X: or /Volumes/bob)
+- Remote share: the path to the drive on the cluster (eg /cephfs/bob)
+
+Actions:
+
+1. Install: download and copy the pythonscript from github into a "job" folder. This can also be used to update the script.
+2. Scan: scan nd2 files locaed in the data folder and create a spreadsheet filelist.csv listing the files and field of views. You can open this file to remove the field of views that you want to discard. By default, the condition column is the well number but you can change it to the corresponding condition at this point or later before creating figures.
+3. Config: configure the channel order
+4. Process: process all the field of views listed in filelist.csv and export the results in a "result" folder as csv and vignette files. Each field of view is processed in separate job on the cluster.
+5. Figure: collate all the csv files in the "result" folder into a cells.csv file and generate a boxplot for each measurements by condition as defined in the filelist.csv.
+6. List Jobs: list the running jobs in table
 
 ## Images and features
 
 Images have 4 channels
-1. DAPI
-2. WGA
-3. Other
-4. Granules
+1. nuclei (DAPI)
+2. membrane (WGA)
+3. other
+4. granules
 
 Segmentations:
-- Cells are segmented using channels 1 DAPI and 2 WGA using cellpose
-- Nuclei are segmented using channel 1 DAPI using cellpose
-- Stress granules are segmented using channel 4
-- Other label
+- Cells are segmented using cellpose with membrane and nulcei markers
+- Nuclei are segmented using cellpose with nuclei marker
+- Stress granules are segmented using the granule channel
+- Other label is segmented with the other channel
 
 We define 3 masks:
 - Cells: cells without nuclei
 - Particles: stress granules in cell and not in nuclei
-- Cytosol: cells without nuclei and not particle
 
 Measurement per cells:
 1. Cell ID

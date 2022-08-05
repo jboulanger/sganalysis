@@ -1,9 +1,9 @@
 #@String (label="Username", value="username", description="Username on the host") username
 #@String (label="Host", value="hex", description="hostname to which command are send") hostname
-#@File(label="Folder", value="", style="directory",description="Path to the data folder from this computer") folder
-#@String(label="Action",choices={"Install","Scan","Process","Figure","List Jobs"}) action
 #@File (label="Local share",description="Local mounting point of the network share", style="directory") local_share
 #@String (label="Remote share",description="Remote mounting point of the network share", value="/cephfs/") remote_share
+#@File(label="Folder", value="", style="directory",description="Path to the data folder from this computer") folder
+#@String(label="Action",choices={"Install","Scan","Config","Process","Figure","List Jobs"}) action
 
 /*
  * Launch slurm jobs for stress granule analysis
@@ -34,6 +34,8 @@ if (File.exists(local_jobs_dir) != 1) {
 
 if (matches(action, "Scan")) {
 	scan();
+} else if (matches(action, "Config")) {
+	config();
 } else if (matches(action, "Process")) {
 	process();
 }else if (matches(action, "Figure")) {
@@ -63,6 +65,29 @@ function scan() {
 	ret = exec("ssh", username+"@"+hostname, "sbatch", "--chdir", remote_jobs_dir, jobname);
 	print(ret);
 	print("Edit channel orders in the config.json file");	
+}
+
+function config() {
+	Dialog.create("Channel Configuration Tool");
+	Dialog.addString("Channels labels", "other,membrane,granule,nuclei");
+	Dialog.addString("Channels wavelength", "525,620,700,447");
+	Dialog.show();
+	channels_str = Dialog.getString();
+	waves_str = Dialog.getString();
+	channels = parseCSVString(channels_str);
+	waves = parseCSVString(waves_str);
+	str = "{\"channels\":[";
+	for (i = 0; i < channels.length; i++) {
+		str += "{\"index\":"+i+",\"name\":\""+channels[i] +"\", \"wavelength\":"+waves[i]+"}";
+		if (i!= channels.length-1) {
+			str+=",";
+			}
+	}
+	str += "],\"NA\":0.95,\"medium_refractive_index\":1.4, \"scale_um\":50}";
+	print(str);	
+	print("saving config in folder");
+	print(folder+File.separator+"config.json");
+	File.saveString(str, folder+File.separator+"config.json");
 }
 
 function process() {
@@ -124,4 +149,12 @@ function convert_slash(src) {
 	} else {
 		return src;
 	}
+}
+
+function parseCSVString(csv) {	
+	str = split(csv, ",");
+	for (i = 0; i < str.length; i++) { 
+		str[i] =  String.trim(str[i]);
+	}
+	return str;
 }

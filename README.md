@@ -1,6 +1,10 @@
 # Stress Granule analysis
 
-Python scripts to stress granule analyse images.
+Python scripts to process stress granule screen.
+
+Image are acquired on a Nikon wide-field system.
+
+Processing is done on a HPC cluster.
 
 ## Installation
 To run the code on a cluster, you might need to enable your slurm account and storage account.
@@ -38,12 +42,12 @@ To process the data, you need to follow several steps which are all done from th
 
 Actions:
 
-1. Install: download and copy the pythonscript from github into a "job" folder. This can also be used to update the script.
-2. Scan: scan nd2 files locaed in the data folder and create a spreadsheet filelist.csv listing the files and field of views. You can open this file to remove the field of views that you want to discard. By default, the condition column is the well number but you can change it to the corresponding condition at this point or later before creating figures.
+1. Install: downloads and copies the pythonscript from github into a "job" folder. This can also be used to update the script.
+2. Scan: scans nd2 files located in the data folder and create a spreadsheet filelist.csv listing the files and field of views. You can open this file to remove the field of views that you want to discard. By default, the condition column is the well number but you can change it to the corresponding condition at this point or later before creating figures.
 3. Config: configure the channel order
 4. Process: process all the field of views listed in filelist.csv and export the results in a "result" folder as csv and vignette files. Each field of view is processed in separate job on the cluster.
 5. Figure: collate all the csv files in the "result" folder into a cells.csv file and generate a boxplot for each measurements by condition as defined in the filelist.csv.
-6. List Jobs: list the running jobs in table
+6. List Jobs: list the running jobs in a table
 
 ## Images and features
 

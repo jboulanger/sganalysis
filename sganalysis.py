@@ -27,7 +27,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 matplotlib.use('AGG')
 
-def manders_coefficients(im1,im2,display=False):
+def manders_coefficients(im1, im2, display=False):
     ''' Compute Manders overlap coefficients'''
     intersect = np.logical_and(im1,im2)
     p12 = np.sum(intersect>0)

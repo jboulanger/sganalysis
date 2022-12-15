@@ -16,6 +16,7 @@ import glob, os
 import json
 #import nd2 # did not work on the cluster
 import seaborn as sns
+import tifffile
 
 def get_nd2_number_of_positions(filename):
     with ND2Reader(filename) as images:
@@ -34,21 +35,30 @@ def load_nd2(filename, fov=0):
     shp = [images.sizes['z'], images.sizes['c'], images.sizes['y'], images.sizes['x']]
     return np.reshape(np.stack(planes), shp), pixel_size
 
-#def load_nd2_sdk(filename, fov=0):
-#    """Load all z planes and channels images from a multi-position file"""
-#    f = nd2.ND2File(filename)
-#    data = f.to_dask()
-#   img = data[fov].compute()
-#    pixel_size = px = [1000.*p for p in f.metadata.channels[0].volume.axesCalibration]
-#    pixel_size.reverse()
-#    return img, pixel_size
+def load_lsm(filename, fov):
+    with tifffile.TiffFile(filename) as tif:
+        data = tif.asarray()[fov]
+        md = tif.lsm_metadata
+        pixel_size = [md['VoxelSizeZ']*1e9, md['VoxelSizeY']*1e9, md['VoxelSizeX']*1e9]
+    return data, pixel_size
+
+def load_image(filename, fov):
+    path = Path(filename)
+    if path.suffix == '.nd2':
+        return load_nd2(filename, fov)
+    else:
+        return load_lsm(filename, fov)
 
 def projection(data):
-    mip = []
-    for k in range(data.shape[1]):
-        w = np.exp(-0.1*np.abs(laplace(data[:,k,:,:])))
-        mip.append(np.mean( np.squeeze(data[:,k,:,:]) * w, axis=0) /  np.mean(w,axis=0))
-    return np.stack(mip,axis=0)
+    if len(data.shape) == 4:
+        mip = []
+        for k in range(data.shape[1]):
+            w = np.exp(-0.1*np.abs(laplace(data[:,k,:,:])))
+            mip.append(np.mean( np.squeeze(data[:,k,:,:]) * w, axis=0) /  np.mean(w,axis=0))
+        return np.stack(mip,axis=0)
+    else:
+        return data
+
 
 def segment_cells(img,pixel_size,scale):
     print('  Segmenting cells')
@@ -58,12 +68,14 @@ def segment_cells(img,pixel_size,scale):
     print('  done')
     return mask
 
+
 def segment_nuclei(img,pixel_size,scale):
     print('  Segmenting nuclei')
     d = 0.33*1000*scale/pixel_size[-1]
     model = models.Cellpose(gpu=True, model_type='nuclei')
     mask, flows, styles, diams = model.eval(img, diameter=d, flow_threshold=None, channels=[0,0])
     return mask
+
 
 def segment_granules(img):
     print('  Segmenting granule')
@@ -83,19 +95,20 @@ def segment_image(img,pixel_size,scale):
     }
     return labels
 
+
 def spatial_spread(mask, intensity):
-        """Spread as the trace of the moment matrix"""
-        x,y = np.meshgrid(np.arange(mask.shape[0]), np.arange(mask.shape[1]))
-        w = mask * intensity
-        sw = np.sum(w)
-        if sw < 1e-9:
-            return 0.0
-        sx = np.sum(w * x) / sw
-        sy = np.sum(w * y) / sw
-        sxx = np.sum(w * np.square(x-sx)) / sw
-        syy = np.sum(w * np.square(y-sy)) / sw
-        #sxy = np.sum(w * (x-sx) * (y-sy)) / sw
-        return np.sqrt(sxx+syy)
+    """Spread as the trace of the moment matrix"""
+    x,y = np.meshgrid(np.arange(mask.shape[0]), np.arange(mask.shape[1]))
+    w = mask * intensity
+    sw = np.sum(w)
+    if sw < 1e-9:
+        return 0.0
+    sx = np.sum(w * x) / sw
+    sy = np.sum(w * y) / sw
+    sxx = np.sum(w * np.square(x-sx)) / sw
+    syy = np.sum(w * np.square(y-sy)) / sw
+    #sxy = np.sum(w * (x-sx) * (y-sy)) / sw
+    return np.sqrt(sxx+syy)
 
 def does_not_touch_image_border(roi,img):
     """Return true if the roi does not touch the image border defined by the shape [nc,ny,nx]"""
@@ -107,7 +120,6 @@ def strech_range(x):
     a = 0.95 * x.max()
     b = 1.05 * x.min()
     return np.clip((x-b)/(a-b),0,1)
-
 
 def show_image(img, labels, rois):
     """Show the image with labels and rois"""
@@ -175,7 +187,7 @@ def compute_roi_distance(masks):
     }
     return distances
 
-def manders_coefficients(mask1,mask2,im1,im2,):
+def manders_coefficients(mask1,mask2,im1,im2):
     """Compute Manders overlap coefficients"""
     intersect = np.logical_and(mask1, mask2)
     n1 = np.sum(mask1 * im1, dtype=float)
@@ -301,7 +313,6 @@ def deconvolve_richardson_lucy(data, otf, background=0, iterations=100):
     dkl        : Kullback Leibler divergence
     """
     estimate = np.clip(np.real(np.fft.ifftn(otf * np.fft.fftn(data-background))), 1e-6, None)
-    dkl = np.zeros(iterations)
     for k in range(iterations):
         blurred = np.clip(np.real(np.fft.ifftn(otf * np.fft.fftn(estimate+background))), 1e-6, None)
         ratio = data / blurred
@@ -359,7 +370,7 @@ def deconvolve_all_channels(data,pixel_size,config):
     return np.stack(dec, axis=1)
 
 def process_fov(filename, position, config):
-    data, pixel_size = load_nd2(filename, position)
+    data, pixel_size = load_image(filename, position)
     #data = deconvolve_all_channels(data,pixel_size,config)
     mip = config2img( projection(data), config['channels'])
     labels = segment_image(mip, pixel_size, config['scale_um'])
@@ -379,36 +390,61 @@ def process_fov(filename, position, config):
 
     return stats, mip, labels, rois
 
-def scan(args):
-    """Scan a folder of nd2 files and list the field of views (fov)"""
-    print("[ Scan ]")
-    if isinstance(args, argparse.Namespace):
-        folder = args.data_path
-    else:
-        folder = args
-    print(f"Scanning folder : {args.data_path}")
-    print(f"Output file list : {args.file_list}")
-    os.chdir(folder)
+def scan_folder_nd2(folder:Path):
+    """list the field of views of a ND2 file
+    """
     L = []
-    config = None
-    for file in glob.glob("*.nd2"):
-        print(f'Scanning file {file}')
+    for file in folder.glob("*.nd2"):
         condition = file.split('_')[1].replace('Well','')
         try:
             with ND2Reader(file) as images:
                 for fov in range(images.sizes['v']):
-                    L.append({'filename':file,'fov':fov,'condition':condition})
-                if config is None:
-                    nchannels = images.sizes['c']
-                    config = {"channels":[{"index":k,"name":"undefined","wavelength":0} for k in range(nchannels)], "NA":0.95,"medium_refractive_index":1.4,"scale_um":50}
+                    L.append({
+                        'filename': file.name,
+                        'fov': fov,
+                        'condition': condition,
+                        'channels':images.sizes['c']})
         except:
-            print("An error occured on this file")
+                print("An error occured on this file " + file)
+    return pd.DataFrame(L)
 
-    if len(L) == 0:
-        print("Could not scan any file")
-        return None
+def scan_folder_lsm(folder:Path):
+    """list the field of views of a LSM file"""
+    L = []
+    for file in folder.glob("*.lsm"):
+        try:
+            with tifffile.TiffFile(file) as tif:
+                for fov in range(tif.lsm_metadata['DimensionP']):
+                    L.append({
+                        'filename': file.name,
+                        'fov': fov,
+                        'condition': 'unknown',
+                        'channels' : tif.lsm_metadata['DimensionChannels']
+                    })
+        except:
+            print("An error occured on this file " + file)
+    return pd.DataFrame(L)
 
-    df = pd.DataFrame(L)
+def scan(args):
+    """Scan a folder of nd2 files and list the field of views (fov)"""
+
+    print("[ Scan ]")
+
+    if isinstance(args, argparse.Namespace):
+        folder = Path(args.data_path)
+    else:
+        folder = args
+
+    print(f"Scanning folder  : {folder}")
+    print(f"File type        : {args.file_type}")
+    print(f"Output file list : {args.file_list}")
+
+
+    if args.file_type == 'nd2':
+        df = scan_folder_nd2(folder)
+    else:
+        df = scan_folder_lsm(folder)
+
 
     if isinstance(args,argparse.Namespace):
         if args.file_list is not None:
@@ -418,11 +454,14 @@ def scan(args):
             print(df)
 
     if isinstance(args,argparse.Namespace):
-        if args.config is not None:
-            if os.path.exists(args.config) is False:
-                print(f'Saving configuration to json file {args.config}')
-                with open(args.config, "w") as fp:
-                    json.dump(config, fp)
+        if os.path.exists(args.config) is False:
+            nchannels = df['channels'][0]
+            config = {
+                "channels":[{"index":k,"name":"undefined"} for k in range(nchannels)],
+                "scale_um" : 50
+            }
+            with open(args.config, "w") as fp:
+                json.dump(config, fp)
 
     return df
 
@@ -448,6 +487,8 @@ def process(args):
         with open(os.path.join(args.data_path,'config.json'),'r') as configfile:
             print('Loading default configuration file')
             config = json.load(configfile)
+
+    print(config)
 
     stats,mip,labels,rois = process_fov(filename, fov, config)
 
@@ -514,6 +555,7 @@ def main():
     parser_scan = subparsers.add_parser('scan', help='scan help')
     parser_scan.add_argument('--data-path',help='folder to scan',required=True)
     parser_scan.add_argument('--file-list',help='filelist')
+    parser_scan.add_argument('--file-type',help='file type (n2 or lsm)')
     parser_scan.add_argument('--config',help='json configuration file')
     parser_scan.set_defaults(func=scan)
 

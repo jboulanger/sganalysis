@@ -140,6 +140,7 @@ function process() {
 	File.saveString(str,local_jobs_dir+File.separator+jobname);
 	Table.open(folder+File.separator+"filelist.csv");
 	n = Table.size;
+	print("Sending command to "+ hostname);	
 	ret = exec("ssh", username+"@"+hostname, "sbatch", "--chdir", remote_jobs_dir,  "--array=1-"+n, jobname);
 	print(ret);
 	print("Job is running in the background, use 'List Jobs' to check completion.");

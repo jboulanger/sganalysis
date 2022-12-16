@@ -560,7 +560,7 @@ def make_figure(args):
     sns.set_style("ticks")
     a = cells.columns.tolist().index('Cell ID')+1
     b = cells.columns.tolist().index('Number of nuclei')+2
-    facet_plot(cells, cells.columns[a:b], 8)
+    facet_plot(cells, cells.columns[a:b], 4)
     figname = os.path.join(args.data_path, 'results', 'cells.pdf')
     print(f'Saving figure to file {figname}')
     plt.savefig(figname)

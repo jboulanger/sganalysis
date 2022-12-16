@@ -520,7 +520,7 @@ def process(args):
 def facet_plot(data,cols,columns=4):
     import math
     rows = math.ceil(len(cols)/columns)
-    fig, ax = plt.subplots(rows,columns,figsize=(6*columns,6*rows))
+    fig, ax = plt.subplots(rows,columns,figsize=(10*columns,10*rows))
     for r in range(rows):
         for c in range(columns):
             if columns * r + c < len(cols)-1:

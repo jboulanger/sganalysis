@@ -131,14 +131,20 @@ def show_image(img, labels, rois):
     plt.imshow(visu)
 
     for r in rois:
-        c = find_contours(ndimage.binary_erosion(labels['cells']==r.label), 0.5)
-        plt.plot(c[0][:,1],c[0][:,0])
-        plt.text(r.centroid[1], r.centroid[0], f'{r.label}', color='white')
+        try:
+            c = find_contours(ndimage.binary_erosion(labels['cells']==r.label), 0.5)
+            plt.plot(c[0][:,1],c[0][:,0])
+            plt.text(r.centroid[1], r.centroid[0], f'{r.label}', color='white')
+        except:
+            print('failed to show cell')
 
     for r in np.unique(labels['nuclei']):
-        if r > 0:
-            c = find_contours(labels['nuclei']==r, 0.5)
-            plt.plot(c[0][:,1],c[0][:,0],'w',alpha=0.5)
+        try:
+            if r > 0:
+                c = find_contours(labels['nuclei']==r, 0.5)
+                plt.plot(c[0][:,1],c[0][:,0],'w',alpha=0.5)
+        except:
+            print('failed to show nuclei')
     plt.axis('off')
 
 def show_roi(roi, img, labels):
@@ -376,6 +382,9 @@ def process_fov(filename, position, config):
     labels = segment_image(mip, pixel_size, config['scale_um'])
     rois = regionprops(labels['cells'])
     rois = [x for x in rois if does_not_touch_image_border(x,mip)]
+    # discard too small cells
+    amin = 3.14 * (0.1*config['scale_um']*1e3 / pixel_size[1])**2
+    rois = [x for x in rois if x.area > amin]
 
     stats = []
     for k,roi in enumerate(rois):
@@ -387,6 +396,8 @@ def process_fov(filename, position, config):
             print('Error encountered for ROI',k)
 
     stats = pd.DataFrame(stats)
+
+
 
     return stats, mip, labels, rois
 
@@ -500,8 +511,8 @@ def process(args):
 
     if args.output_vignette is not None:
         print(f'Saving vignette to file {args.output_vignette}')
-        plt.figure(figsize=(20,20))
-        show_image(mip,labels,rois)
+        plt.figure(figsize = (20, 20))
+        show_image(mip, labels, rois)
         name = filelist['filename'][id]
         plt.title(f'#{id} file:{name} fov:{fov}')
         plt.savefig(args.output_vignette)
@@ -513,8 +524,11 @@ def facet_plot(data,cols,columns=4):
     for r in range(rows):
         for c in range(columns):
             if columns * r + c < len(cols)-1:
-                sns.boxplot(data=data,x="condition",y=cols[columns*r+c],ax=ax[r,c])
-                sns.despine(left=True)
+                try:
+                    sns.boxplot(data=data,x="condition",y=cols[columns*r+c],ax=ax[r,c])
+                    sns.despine(left=True)
+                except:
+                    print(f'cound not show column {cols[columns*r+c]}')
 
 def make_figure(args):
     """make a figure
@@ -532,15 +546,21 @@ def make_figure(args):
             cells.append(pd.read_csv(filename))
         except:
             print(f'could not load file {filename}')
+
     cells = pd.concat(cells)
     cells = pd.merge(cells,filelist,left_on='index',right_on='index')
     csvname = os.path.join(args.data_path, 'results', 'cells.csv')
     print(f'Saving data to file {csvname}')
     cells.to_csv(csvname)
 
+    cells = cells[cells['Number of nuclei']==1]
+    cells = cells[cells['Number of nuclei']==1]
+
     sns.set()
     sns.set_style("ticks")
-    facet_plot(cells,cells.columns[2:-4],8)
+    a = cells.columns.tolist().index('Cell ID')+1
+    b = cells.columns.tolist().index('Number of nuclei')+2
+    facet_plot(cells, cells.columns[a:b], 8)
     figname = os.path.join(args.data_path, 'results', 'cells.pdf')
     print(f'Saving figure to file {figname}')
     plt.savefig(figname)

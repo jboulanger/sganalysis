@@ -525,7 +525,7 @@ def facet_plot(data,cols,columns=4):
         for c in range(columns):
             if columns * r + c < len(cols)-1:
                 try:
-                    sns.boxplot(data=data,x="condition",y=cols[columns*r+c],ax=ax[r,c])
+                    sns.boxplot(data=data,y="condition",x=cols[columns*r+c],ax=ax[r,c])
                     sns.despine(left=True)
                 except:
                     print(f'cound not show column {cols[columns*r+c]}')

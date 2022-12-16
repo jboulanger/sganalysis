@@ -3,7 +3,7 @@
 #@File (label="Local share",description="Local mounting point of the network share", style="directory") local_share
 #@String (label="Remote share",description="Remote mounting point of the network share", value="/cephfs/") remote_share
 #@File(label="Folder", value="", style="directory",description="Path to the data folder from this computer") folder
-#@String(label="Action",choices={"Install","Scan","Config","Process","Figure","List Jobs"}) action
+#@String(label="Action",choices={"Install","Scan ND2","Scan LSM","Config","Process","Figure","List Jobs"}) action
 
 /*
  * Launch slurm jobs for stress granule analysis
@@ -33,8 +33,10 @@ if (File.exists(local_jobs_dir) != 1) {
 	print("Jobs folder already present in " + local_share);
 }
 
-if (matches(action, "Scan")) {
-	scan();
+if (matches(action, "Scan ND2")) {
+	scannd2();
+} else if(matches(action, "Scan LSM")){
+	scanlsm();
 } else if (matches(action, "Config")) {
 	config();
 } else if (matches(action, "Process")) {
@@ -56,13 +58,27 @@ function install() {
 	print("Done");
 }
 
-function scan() {
-	print("[ Scanning data folder ]");
+function scannd2() {
+	print("[ Scanning data folder for nd2 files]");
 	print("List all files in the data folder and create a filelist.csv file.");
 	print(" - Remote path " + remote_path);
 	print(" - File list " + remote_path+"/filelist.csv");
 	jobname = "sga-scan.sh";
-	str  = "#!/bin/tcsh\n#SBATCH --job-name=sg-scan\n#SBATCH --time=01:00:00\nconda activate sganalysis\npython sganalysiswf.py scan --data-path=\""+remote_path+"\" --file-list \""+remote_path+"/filelist.csv\" --config \""+remote_path+"/config.json\"";	
+	str  = "#!/bin/tcsh\n#SBATCH --job-name=sg-scan\n#SBATCH --time=01:00:00\nconda activate sganalysis\npython sganalysiswf.py scan --file-type nd2 --data-path=\""+remote_path+"\" --file-list \""+remote_path+"/filelist.csv\" --config \""+remote_path+"/config.json\"";	
+	File.saveString(str,local_jobs_dir+File.separator+jobname);
+	ret = exec("ssh", username+"@"+hostname, "sbatch", "--chdir", remote_jobs_dir, jobname);
+	print(" " + ret);
+	print(" Job is now running in the background, use 'List Jobs' to check completion.");
+	print(" Next: edit channel orders in the config.json file.");	
+}
+
+function scanlsm() {
+	print("[ Scanning data folder for LSM files ]");
+	print("List all files in the data folder and create a filelist.csv file.");
+	print(" - Remote path " + remote_path);
+	print(" - File list " + remote_path+"/filelist.csv");
+	jobname = "sga-scan.sh";
+	str  = "#!/bin/tcsh\n#SBATCH --job-name=sg-scan\n#SBATCH --time=01:00:00\nconda activate sganalysis\npython sganalysiswf.py scan --file-type lsm --data-path=\""+remote_path+"\" --file-list \""+remote_path+"/filelist.csv\" --config \""+remote_path+"/config.json\"";	
 	File.saveString(str,local_jobs_dir+File.separator+jobname);
 	ret = exec("ssh", username+"@"+hostname, "sbatch", "--chdir", remote_jobs_dir, jobname);
 	print(" " + ret);
@@ -72,7 +88,24 @@ function scan() {
 
 function config() {
 	print("[ Configuration file ]");
+	//Table.open(folder+"/filelist.csv");
+	//nchannels = Table.get("channels", 1);
+	//run("Close");	
+	nchannels=4;	
 	Dialog.create("Channel Configuration Tool");
+	choices = newArray("nuclei", "membrane", "granule","other");
+	for (i = 0; i < nchannels; i++) {
+		Dialog.addChoice("Channels " + (i+1), choices);
+	}
+	Dialog.addNumber("scale [um]", 50);
+	Dialog.show();
+	channels = choices;
+	for (i = 0; i < nchannels; i++) {
+		channels[i] = Dialog.getChoice();
+	}
+	scale = Dialog.getNumber();
+	waves = newArray(525,620,700,447);
+	/*
 	Dialog.addString("Channels labels", "other,membrane,granule,nuclei");
 	Dialog.addString("Channels wavelength", "525,620,700,447");
 	Dialog.show();
@@ -80,15 +113,15 @@ function config() {
 	waves_str = Dialog.getString();
 	channels = parseCSVString(channels_str);
 	waves = parseCSVString(waves_str);
+	*/
 	str = "{\"channels\":[";
 	for (i = 0; i < channels.length; i++) {
-		str += "{\"index\":"+i+",\"name\":\""+channels[i] +"\", \"wavelength\":"+waves[i]+"}";
+		str += "{\"index\":"+i+",\"name\":\"" + channels[i] +"\", \"wavelength\":"+waves[i]+"}";
 		if (i!= channels.length-1) {
 			str+=",";
-			}
+		}
 	}
-	str += "],\"NA\":0.95,\"medium_refractive_index\":1.4, \"scale_um\":50}";
-	
+	str += "],\"NA\":0.95,\"medium_refractive_index\":1.4, \"scale_um\":"+scale+"}";	
 	print("Saving configuration file in folder");
 	print(folder+File.separator+"config.json");
 	File.saveString(str, folder+File.separator+"config.json");

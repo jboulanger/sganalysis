@@ -43,11 +43,12 @@ To process the data, you need to follow several steps which are all done from th
 Actions:
 
 1. Install: downloads and copies the pythonscript from github into a "job" folder. This can also be used to update the script.
-2. Scan: scans nd2 files located in the data folder and create a spreadsheet filelist.csv listing the files and field of views. You can open this file to remove the field of views that you want to discard. By default, the condition column is the well number but you can change it to the corresponding condition at this point or later before creating figures.
-3. Config: configure the channel order
-4. Process: process all the field of views listed in filelist.csv and export the results in a "result" folder as csv and vignette files. Each field of view is processed in separate job on the cluster.
-5. Figure: collate all the csv files in the "result" folder into a cells.csv file and generate a boxplot for each measurements by condition as defined in the filelist.csv.
-6. List Jobs: list the running jobs in a table
+2. Scan N2: scans nd2 files located in the data folder and create a spreadsheet filelist.csv listing the files and field of views. You can open this file to remove the field of views that you want to discard. By default, the condition column is the well number but you can change it to the corresponding condition at this point or later before creating figures.
+3. Scan LSM: scans lsm files located in the data folder and create a spreadsheet filelist.csv listing the files and field of views. You can open this file to remove the field of views that you want to discard. By default, the condition column is set to unknown.
+4. Config: configure the channel order
+5. Process: process all the field of views listed in filelist.csv and export the results in a "result" folder as csv and vignette files. Each field of view is processed in separate job on the cluster.
+6. Figure: collate all the csv files in the "result" folder into a cells.csv file and generate a boxplot for each measurements by condition as defined in the filelist.csv.
+7. List Jobs: list the running jobs in a table
 
 ## Images and features
 

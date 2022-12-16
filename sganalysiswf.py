@@ -527,6 +527,7 @@ def facet_plot(data,cols,columns=4):
                 try:
                     sns.boxplot(data=data,y="condition",x=cols[columns*r+c],ax=ax[r,c])
                     sns.despine(left=True)
+                    plt.xticks(rotation=45)
                 except:
                     print(f'cound not show column {cols[columns*r+c]}')
 

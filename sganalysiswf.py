@@ -79,8 +79,8 @@ def segment_nuclei(img,pixel_size,scale):
 
 def segment_granules(img):
     print('  Segmenting granule')
-    flt = difference_of_gaussians(img, 1, 4)
-    t = flt.mean() + 3*flt.std()
+    flt = difference_of_gaussians(img, 1.5, 4)
+    t = flt.mean() + 2.5 * flt.std()
     return label(flt > t).astype(np.uint)
 
 def segment_image(img,pixel_size,scale):

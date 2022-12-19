@@ -100,6 +100,7 @@ def spatial_spread(mask, intensity):
     """Spread as the trace of the moment matrix"""
     x,y = np.meshgrid(np.arange(mask.shape[0]), np.arange(mask.shape[1]))
     w = mask * intensity
+    w = (w - w.min()) / (w.max() - w.min())
     sw = np.sum(w)
     if sw < 1e-9:
         return 0.0

@@ -544,8 +544,8 @@ def process(args):
         print(f'Saving vignette to file {args.output_vignette}')
         plt.figure(figsize = (20, 20))
         show_image(mip, labels, rois)
-        name = filelist['filename'][id]
-        plt.title(f'#{id} file:{name} fov:{fov}')
+        name = filelist['filename'][idx]
+        plt.title(f'#{idx} file:{name} fov:{fov}')
         plt.savefig(args.output_vignette)
 
 
@@ -575,22 +575,23 @@ def make_figure(args):
     Save a cells.csv and cells.pdf file in {data_path}/results
     """
     print("[ Figure ]")
-    filelist = pd.read_csv(args.file_list)
-    cells = []
-    for id in filelist['index']:
-        filename = os.path.join(args.data_path, 'results', f'cells-{id+1}.csv')
+    cells=[]
+    folder = Path(args.data_path)
+    filelist = pd.read_csv(args.file_list,index_col='index')
+    for k in range(len(filelist)):
         try:
-            cells.append(pd.read_csv(filename))
+            cells.append(pd.read_csv(folder/'results'/f'cells{k:06d}.csv'))
         except:
-            print(f'could not load file {filename}')
+            print(f'missing {k}')
 
     cells = pd.concat(cells)
-    cells = pd.merge(cells, filelist, left_on='index', right_on='index')
-    csvname = os.path.join(args.data_path, 'results', 'cells.csv')
+    cells = cells.join(filelist,on='index')
+
+    csvname = folder / 'results' / 'cells.csv'
     print(f'Saving data to file {csvname}')
     cells.to_csv(csvname)
 
-    cells = cells[cells['Number of nuclei']==1]
+    print("Filtering out cell with more or less than 1 nuclei")
     cells = cells[cells['Number of nuclei']==1]
 
     sns.set()

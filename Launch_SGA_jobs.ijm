@@ -124,7 +124,7 @@ function process() {
 		File.makeDirectory(folder+File.separator+"results");
 	}
 	jobname = "sga-process.sh";
-	str  = "#!/bin/tcsh\n#SBATCH --job-name=sga-process\n#SBATCH --time=05:00:00\n#SBATCH --partition=gpu\n#SBATCH --gres=gpu:1\nconda activate sganalysis\nID=$(printf %06d $SLURM_ARRAY_TASK_ID)\npython sganalysiswf.py process --data-path=\""+remote_path+"\" --file-list \""+remote_path+"/filelist.csv\" --index $ID --output-by-cells \""+remote_path+"\"/results/cells$ID.csv --output-vignette \""+remote_path+"\"/results/vignettes$ID.png";
+	str  = "#!/bin/tcsh\n#SBATCH --job-name=sga-process\n#SBATCH --time=05:00:00\n#SBATCH --partition=gpu\n#SBATCH --gres=gpu:1\nconda activate sganalysis\nset I=`printf %06d $SLURM_ARRAY_TASK_ID`\npython sganalysiswf.py process --data-path=\""+remote_path+"\" --file-list \""+remote_path+"/filelist.csv\" --index $I --output-by-cells \""+remote_path+"\"/results/cells$I.csv --output-vignette \""+remote_path+"\"/results/vignettes$I.png";
 	File.saveString(str,local_jobs_dir+File.separator+jobname);
 	Table.open(folder+File.separator+"filelist.csv");
 	n = Table.size;
@@ -169,6 +169,7 @@ function listjobs() {
 		setResult("USER",i-1,elem[3]);
 		setResult("STATUS",i-1,elem[4]);
 		setResult("TIME",i-1,elem[5]);
+		setResult("LOG",i-1,local_jobs_dir + File.separato + "slurm-"+elem[0]+".out");
 	}
 }
 

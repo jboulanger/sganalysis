@@ -510,14 +510,15 @@ def process(args):
     """Sub command for processing item from a list of file / fov"""
 
     print("[ Process ]")
-    id = args.index - 1
+    idx = args.index # from 0 to N-1
     filelist = pd.read_csv(args.file_list)
     if args.data_path is not None:
-        filename = os.path.join(args.data_path, filelist['filename'][id])
+        filename = os.path.join(args.data_path, filelist['filename'][idx])
     else:
-        filename = filelist['filename'][id]
+        filename = filelist['filename'][idx]
 
-    fov =  filelist['fov'][id]
+    fov =  filelist['fov'][idx]
+
     print('File:',filename)
     print('Field of view:', fov)
 
@@ -584,7 +585,7 @@ def make_figure(args):
             print(f'could not load file {filename}')
 
     cells = pd.concat(cells)
-    cells = pd.merge(cells,filelist,left_on='index',right_on='index')
+    cells = pd.merge(cells, filelist, left_on='index', right_on='index')
     csvname = os.path.join(args.data_path, 'results', 'cells.csv')
     print(f'Saving data to file {csvname}')
     cells.to_csv(csvname)

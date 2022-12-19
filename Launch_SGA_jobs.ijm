@@ -124,14 +124,16 @@ function process() {
 		File.makeDirectory(folder+File.separator+"results");
 	}
 	jobname = "sga-process.sh";
-	str  = "#!/bin/tcsh\n#SBATCH --job-name=sga-process\n#SBATCH --time=05:00:00\n#SBATCH --partition=gpu\n#SBATCH --gres=gpu:1\nconda activate sganalysis\npython sganalysiswf.py process --data-path=\""+remote_path+"\" --file-list \""+remote_path+"/filelist.csv\" --index $SLURM_ARRAY_TASK_ID --output-by-cells \""+remote_path+"\"/results/cells-$SLURM_ARRAY_TASK_ID.csv --output-vignette \""+remote_path+"\"/results/vignettes-$SLURM_ARRAY_TASK_ID.png";
+	str  = "#!/bin/tcsh\n#SBATCH --job-name=sga-process\n#SBATCH --time=05:00:00\n#SBATCH --partition=gpu\n#SBATCH --gres=gpu:1\nconda activate sganalysis\nID=$(printf %06d $SLURM_ARRAY_TASK_ID)\npython sganalysiswf.py process --data-path=\""+remote_path+"\" --file-list \""+remote_path+"/filelist.csv\" --index $ID --output-by-cells \""+remote_path+"\"/results/cells$ID.csv --output-vignette \""+remote_path+"\"/results/vignettes$ID.png";
 	File.saveString(str,local_jobs_dir+File.separator+jobname);
 	Table.open(folder+File.separator+"filelist.csv");
 	n = Table.size;
 	print("Sending command to "+ hostname);	
-	ret = exec("ssh", username+"@"+hostname, "sbatch", "--chdir", remote_jobs_dir,  "--array=1-"+n, jobname);
+	ret = exec("ssh", username+"@"+hostname, "sbatch", "--chdir", remote_jobs_dir,  "--array=0-"+(n-1), jobname);
 	print(ret);
+	jobid = parseInt(replace(ret,"Submitted batch job ",""));	
 	print("Job is running in the background, use 'List Jobs' to check completion.");
+	print(local_jobs_dir + File.separator + "slurm-" + jobid + "_1.out");
 	print("Next: create figures using the 'Figure' action.");	
 }
 
@@ -142,12 +144,12 @@ function figure() {
 	File.saveString(str,local_jobs_dir+File.separator+jobname);
 	ret = exec("ssh", username+"@"+hostname, "sbatch", "--chdir", remote_jobs_dir, jobname);
 	print(ret);
+	jobid = parseInt(replace(ret,"Submitted batch job ",""));	
+	print("Job is running in the background, use 'List Jobs' to check completion.");
+	print(local_jobs_dir + File.separator + "slurm-" + jobid + ".out");
 	print("Once the job is completed, opne the files:");
 	print(local_share+"/results/cells.csv");
-	print(local_share+"/results/cells.pdf");
-	print("Check file");
-	print(local_jobs_dir + "slurm-"+jobname+".out");
-	print("for errors in the job");
+	print(local_share+"/results/cells.pdf");	
 }
 
 function listjobs() {

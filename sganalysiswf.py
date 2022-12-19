@@ -382,6 +382,8 @@ def measure_roi_stats(roi, img, masks, distances):
     stats['Colocalization manders m2 granule:other'] = m2
 
     stats['Number of particles'] = len(particles)
+    stats['Particle area'] = np.sum(np.array([x.area for x in particles])) if len(particles) > 0 else 0
+    stats['Particle area fraction'] = np.sum(np.array([x.area for x in particles])) / roi.area if len(particles) > 0 else 0
     stats['Average particle area'] = np.mean(np.array([x.area for x in particles])) if len(particles) > 0 else 0
     stats['Average particle perimeter'] = np.mean(np.array([x.perimeter_crofton for x in particles])) if len(particles) > 0 else 0
     stats['Average particles distance to nuclei'] = np.sum(distances['nucleus']*(masks['particle']>0).astype(float), dtype=float) / np.sum(masks['particle']>0, dtype=float) if len(particles) > 0 else 0
@@ -542,6 +544,7 @@ def process(args):
 
     if args.output_vignette is not None:
         print(f'Saving vignette to file {args.output_vignette}')
+        plt.style.use('default')
         plt.figure(figsize = (20, 20))
         show_image(mip, labels, rois)
         name = filelist['filename'][idx]
@@ -552,17 +555,20 @@ def process(args):
 def facet_plot(data,cols,columns=4):
     import math
     rows = math.ceil(len(cols)/columns)
-    _, ax = plt.subplots(rows,columns,figsize=(5*columns, 5*rows))
+    _, ax = plt.subplots(rows,columns,figsize=(6*columns, 6*rows))
     for r in range(rows):
         for c in range(columns):
             if columns * r + c < len(cols)-1:
                 try:
-                    sns.violinplot(
+                    sns.boxplot(
                         data = data,
                         y = "condition",
                         x = cols[columns*r+c],
                         ax = ax[r,c])
-                    #sns.despine(left=True)
+                    if c > 0:
+                        ax[r,c].set(ylabel=None)
+                        ax[r,c].set(yticklabels=[])
+
                 except:
                     print(f'cound not show column {cols[columns*r+c]}')
 
@@ -575,6 +581,7 @@ def make_figure(args):
     Save a cells.csv and cells.pdf file in {data_path}/results
     """
     print("[ Figure ]")
+    plt.style.use('default')
     cells=[]
     folder = Path(args.data_path)
     filelist = pd.read_csv(args.file_list,index_col='index')

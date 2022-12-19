@@ -551,14 +551,17 @@ def process(args):
 def facet_plot(data,cols,columns=4):
     import math
     rows = math.ceil(len(cols)/columns)
-    fig, ax = plt.subplots(rows,columns,figsize=(10*columns,10*rows))
+    _, ax = plt.subplots(rows,columns,figsize=(5*columns, 5*rows))
     for r in range(rows):
         for c in range(columns):
             if columns * r + c < len(cols)-1:
                 try:
-                    sns.boxplot(data=data,y="condition",x=cols[columns*r+c],ax=ax[r,c])
-                    sns.despine(left=True)
-                    plt.xticks(rotation=45)
+                    sns.violinplot(
+                        data = data,
+                        y = "condition",
+                        x = cols[columns*r+c],
+                        ax = ax[r,c])
+                    #sns.despine(left=True)
                 except:
                     print(f'cound not show column {cols[columns*r+c]}')
 

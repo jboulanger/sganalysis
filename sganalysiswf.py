@@ -6,6 +6,7 @@ from nd2reader import ND2Reader
 import math
 from skimage.filters import difference_of_gaussians, laplace
 from skimage.measure import label, regionprops, find_contours
+from skimage.morphology import remove_small_objects
 from cellpose import models
 import edt
 from scipy.stats import pearsonr, spearmanr
@@ -181,8 +182,9 @@ def segment_nuclei(img,pixel_size,scale):
 
 def segment_granules(img):
     print('  Segmenting granule')
-    flt = difference_of_gaussians(img, 1.5, 4)
-    t = flt.mean() + 2.5 * flt.std()
+    flt = difference_of_gaussians(img, 2, 4)
+    t = flt.mean() + 3 * flt.std()
+    binary = remove_small_objects(flt > t, min_size=5)
     return label(flt > t).astype(np.uint)
 
 

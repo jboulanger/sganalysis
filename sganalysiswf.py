@@ -244,6 +244,8 @@ def measure_roi_stats(roi, img, masks, distances):
         bot = stats['Mean intensity in cytosol of ' + c + ' channel']
         top = stats['Mean intensity in particle of ' + c + ' channel']
         stats['Mean intensity ratio particle:cytosol of channel other'] = top / bot if bot > 0 else 0
+        stats['Spread of in cells '+ c + ' channel'] = spatial_spread(masks['cells'], img[c])
+        stats['Spread of in particles '+ c + ' channel'] = spatial_spread(masks['particles'], img[c])
 
     # colocalization
     I1 = img['granule'][masks['cell']].astype(float)

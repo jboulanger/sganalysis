@@ -43,9 +43,9 @@ if (matches(action, "Scan ND2")) {
 	process();
 }else if (matches(action, "Figure")) {
 	figure();
-} else if (matches(action, "Install"))  {
+} else if (matches(action, "Install")) {
 	install();
-} else if (matches(action, "List Jobs"))  {
+} else if (matches(action, "List Jobs")) {
 	listjobs();
 }
 
@@ -88,44 +88,32 @@ function scanlsm() {
 
 function config() {
 	print("[ Configuration file ]");
-	//Table.open(folder+"/filelist.csv");
-	//nchannels = Table.get("channels", 1);
-	//run("Close");	
-	nchannels=4;	
-	Dialog.create("Channel Configuration Tool");
-	choices = newArray("nuclei", "membrane", "granule","other");
-	for (i = 0; i < nchannels; i++) {
-		Dialog.addChoice("Channels " + (i+1), choices);
+	Table.open(folder+"/filelist.csv");
+	nchannels = Table.get("channels", 1);
+	run("Close");	
+	Dialog.create("Channel Configuration Tool");	
+	choices = newArray("1","2","3","4");
+	choices = Array.trim(choices, nchannels);
+	channels = newArray("nuclei","membrane","granule","other");
+	for (i = 0; i < channels.length; i++) {
+		Dialog.addRadioButtonGroup(channels[i], choices, 1, nchannels, choices[i]);
 	}
 	Dialog.addNumber("scale [um]", 50);
 	Dialog.show();
-	channels = choices;
-	for (i = 0; i < nchannels; i++) {
-		channels[i] = Dialog.getChoice();
-	}
-	scale = Dialog.getNumber();
-	waves = newArray(525,620,700,447);
-	/*
-	Dialog.addString("Channels labels", "other,membrane,granule,nuclei");
-	Dialog.addString("Channels wavelength", "525,620,700,447");
-	Dialog.show();
-	channels_str = Dialog.getString();
-	waves_str = Dialog.getString();
-	channels = parseCSVString(channels_str);
-	waves = parseCSVString(waves_str);
-	*/
 	str = "{\"channels\":[";
 	for (i = 0; i < channels.length; i++) {
-		str += "{\"index\":"+i+",\"name\":\"" + channels[i] +"\", \"wavelength\":"+waves[i]+"}";
+		j = parseInt(Dialog.getRadioButton());
+		str += "{\"index\":" + i + ", \"name\":\"" + channels[j-1] + "\"}";
 		if (i!= channels.length-1) {
 			str+=",";
 		}
 	}
+	scale = Dialog.getNumber();
 	str += "],\"NA\":0.95,\"medium_refractive_index\":1.4, \"scale_um\":"+scale+"}";	
 	print("Saving configuration file in folder");
 	print(folder+File.separator+"config.json");
 	File.saveString(str, folder+File.separator+"config.json");
-	print("Configuration file has been created, ready to process the dataset.");
+	print("Configuration file has been created, ready to process the dataset.");	
 }
 
 function process() {

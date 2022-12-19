@@ -142,6 +142,12 @@ function figure() {
 	File.saveString(str,local_jobs_dir+File.separator+jobname);
 	ret = exec("ssh", username+"@"+hostname, "sbatch", "--chdir", remote_jobs_dir, jobname);
 	print(ret);
+	print("Once the job is completed, opne the files:");
+	print(local_share+"/results/cells.csv");
+	print(local_share+"/results/cells.pdf");
+	print("Check file");
+	print(local_jobs_dir + "slurm-"+jobname+".out");
+	print("for errors in the job");
 }
 
 function listjobs() {

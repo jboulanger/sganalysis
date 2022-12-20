@@ -6,7 +6,7 @@ from nd2reader import ND2Reader
 import math
 from skimage.filters import difference_of_gaussians, laplace
 from skimage.measure import label, regionprops, find_contours
-from skimage.morphology import remove_small_objects
+from skimage import morphology
 from cellpose import models
 import edt
 from scipy.stats import pearsonr, spearmanr
@@ -80,6 +80,7 @@ def generate_otf3d(shape,pixel_size,wavelength,numerical_aperture,medium_refract
     otf = np.fft.fftn(psf)
     return otf, psf
 
+
 def deconvolve_richardson_lucy(data, otf, background=0, iterations=100):
     """
     Deconvolve data according to the given otf using a Richardson-Lucy algorithm
@@ -100,6 +101,7 @@ def deconvolve_richardson_lucy(data, otf, background=0, iterations=100):
         ratio = data / blurred
         estimate = estimate * np.real(np.fft.ifftn(otf * np.fft.fftn(ratio)))
     return estimate
+
 
 def deconvolve_richardson_lucy_heavy_ball(data, otf, background, iterations):
     """
@@ -131,12 +133,14 @@ def deconvolve_richardson_lucy_heavy_ball(data, otf, background, iterations):
         dkl[k] = np.mean(blurred - data + data * np.log(np.clip(ratio,a_min=1e-6, a_max=None)))
     return estimate, dkl
 
+
 def correct_hotpixels_inplace(data):
     baseline = ndimage.median_filter(data, size=3)
     delta = data - baseline
     thres = delta.mean() + delta.std()
     delta = np.abs(delta) > thres
     data[delta] = baseline[delta]
+
 
 def deconvolve_all_channels(data,pixel_size,config):
     print('Deconvolve all channels')
@@ -182,10 +186,13 @@ def segment_nuclei(img,pixel_size,scale):
 
 def segment_granules(img):
     print('  Segmenting granule')
-    flt = difference_of_gaussians(img, 2, 4)
+    flt = difference_of_gaussians(np.sqrt(img.astype(float)), 2, 4)
     t = flt.mean() + 3 * flt.std()
-    binary = remove_small_objects(flt > t, min_size=5)
-    return label(flt > t).astype(np.uint)
+    mask = morphology.remove_small_holes(
+                morphology.remove_small_objects(flt > t, min_size=5),
+            )
+    mask = morphology.opening(mask, morphology.disk(3))
+    return label(mask).astype(np.uint)
 
 
 def segment_image(img,pixel_size,scale):
@@ -205,7 +212,11 @@ def spatial_spread(mask, intensity):
     """Spread as the trace of the moment matrix"""
     x,y = np.meshgrid(np.arange(mask.shape[1]), np.arange(mask.shape[0]))
     w = mask * intensity
-    w = (w - w.min()) / (w.max() - w.min())
+    if (w.max()-w.min()) > 0 :
+        w = (w - w.min()) / (w.max() - w.min())
+    else:
+        return 0
+
     sw = np.sum(w)
     if sw < 1e-9:
         return 0.0
@@ -262,8 +273,8 @@ def show_roi(roi, img, labels):
     masks,img = compute_roi_masks(roi, labels, img)
     visu = np.zeros([img['nuclei'].shape[0],img['nuclei'].shape[1],3])
     visu[:,:,0] = strech_range(img['granule'])
-    visu[:,:,1] = strech_range(img['membrane'])
-    visu[:,:,2] = strech_range(img['nuclei'])
+    visu[:,:,1] = 0.15*strech_range(img['membrane'])
+    visu[:,:,2] = 0.15*strech_range(img['nuclei'])
     plt.imshow(visu)
     c = find_contours(masks['cell']==1, 0.5)
     plt.plot(c[0][:,1],c[0][:,0],'w')

@@ -187,7 +187,7 @@ def segment_nuclei(img,pixel_size,scale):
 def segment_granules(img):
     print('  Segmenting granule')
     flt = difference_of_gaussians(np.sqrt(img.astype(float)), 2, 4)
-    t = flt.mean() + 3 * flt.std()
+    t = flt.mean() + 2 * flt.std()
     mask = morphology.remove_small_holes(
                 morphology.remove_small_objects(flt > t, min_size=5),
             )
@@ -381,8 +381,9 @@ def measure_roi_stats(roi, img, masks, distances):
         bot = stats['Mean intensity in cytosol of ' + c + ' channel']
         top = stats['Mean intensity in particle of ' + c + ' channel']
         stats['Mean intensity ratio particle:cytosol of channel other'] = top / bot if bot > 0 else 0
-        stats['Spread in cells of '+ c + ' channel'] = spatial_spread(masks['cell'], img[c])
-        stats['Spread in particles of '+ c + ' channel'] = spatial_spread(masks['particle'], img[c])
+        tmp = morphology.white_tophat(img[c], morphology.disk(10))
+        stats['Spread in cells of '+ c + ' channel'] = spatial_spread(masks['cell'], tmp)
+        stats['Spread in particles of '+ c + ' channel'] = spatial_spread(masks['particle'], tmp)
 
     # colocalization
     I1 = img['granule'][masks['cell']].astype(float)

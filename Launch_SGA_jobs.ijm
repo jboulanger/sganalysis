@@ -88,22 +88,24 @@ function scanlsm() {
 
 function config() {
 	print("[ Configuration file ]");
+	print(folder);
 	Table.open(folder+"/filelist.csv");
 	nchannels = Table.get("channels", 1);
+	print("Images have "+nchannels+" channels");
 	run("Close");	
 	Dialog.create("Channel Configuration Tool");	
 	choices = newArray("1","2","3","4");
 	choices = Array.trim(choices, nchannels);
 	channels = newArray("nuclei","membrane","granule","other");
 	for (i = 0; i < channels.length; i++) {
-		Dialog.addRadioButtonGroup(channels[i], choices, 1, nchannels, choices[i]);
+		Dialog.addRadioButtonGroup(channels[i], choices, 1, nchannels, "1");
 	}
 	Dialog.addNumber("scale [um]", 50);
 	Dialog.show();
 	str = "{\"channels\":[";
 	for (i = 0; i < channels.length; i++) {
 		j = parseInt(Dialog.getRadioButton());
-		str += "{\"index\":" + i + ", \"name\":\"" + channels[j-1] + "\"}";
+		str += "{\"index\":" + j-1 + ", \"name\":\"" + channels[i] + "\"}";
 		if (i!= channels.length-1) {
 			str+=",";
 		}
@@ -114,6 +116,7 @@ function config() {
 	print(folder+File.separator+"config.json");
 	File.saveString(str, folder+File.separator+"config.json");
 	print("Configuration file has been created, ready to process the dataset.");	
+	print(str);
 }
 
 function process() {
@@ -169,7 +172,7 @@ function listjobs() {
 		setResult("USER",i-1,elem[3]);
 		setResult("STATUS",i-1,elem[4]);
 		setResult("TIME",i-1,elem[5]);
-		setResult("LOG",i-1,local_jobs_dir + File.separato + "slurm-"+elem[0]+".out");
+		setResult("LOG",i-1,local_jobs_dir + File.separator + "slurm-"+elem[0]+".out");
 	}
 }
 

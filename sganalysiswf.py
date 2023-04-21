@@ -4,13 +4,15 @@ import matplotlib.pyplot as plt
 import numpy as np
 from nd2reader import ND2Reader
 import math
+from scipy import ndimage
+from scipy.ndimage import gaussian_filter
+from scipy.stats import pearsonr, spearmanr
 from skimage.filters import difference_of_gaussians, laplace
 from skimage.measure import label, regionprops, find_contours
 from skimage import morphology
 from cellpose import models
+from cellpose import core
 import edt
-from scipy.stats import pearsonr, spearmanr
-from scipy import ndimage
 import pandas as pd
 from pathlib import Path
 import glob, os
@@ -167,20 +169,64 @@ def projection(data):
         return data
 
 
-def segment_cells(img,pixel_size,scale):
+def segment_cells(img, pixel_size, scale:float, mode:int=0):
+    """Segment the cells in the image either using cellpose or cellpose and
+    watershed
+
+    Parameters
+    ----------
+    img : image (C,H,W) with the membrane [idx 0] and nuclei channels [idx 1]
+    pixel_size : pixel size as an iterable [pz,py,px]
+    scale : scale in microns
+    mode: type 0:cellpose 1:cellpose+watershed
+
+    Result
+    ------
+    label array (H,W)
+    """
     print('  Segmenting cells')
+
+    from scipy.ndimage import distance_transform_edt, median_filter
+    from skimage.segmentation import watershed
+
     d = 1000*scale/pixel_size[-1]
-    model = models.Cellpose(gpu=True, model_type='cyto2')
-    mask, flows, styles, diams = model.eval(img, diameter=d, flow_threshold=None, channels=[0,1])
-    print('  done')
-    return mask
+    #model = models.Cellpose(gpu=True, model_type='cyto2')
+    #mask, flows, styles, diams = model.eval(img, diameter=d, flow_threshold=None, channels=[0,1])
+    if mode == 1:
+        model = models.Cellpose(gpu=core.use_gpu(), model_type='nuclei')
+        nlabels = model.eval(
+                img,
+                channel_axis = 0,
+                channels = [1,0],
+                diameter = d,
+                flow_threshold = 0.4,
+                cellprob_threshold = 0.1, # default is 0
+                min_size = 100000 # filter out smaller cells
+            )[0]
+        dist = distance_transform_edt(nlabels > 0)
+        mask = median_filter(np.amax(img,0), 11)
+        mask = mask > mask[mask < np.quantile(mask, 0.1)].mean()
+        clabels = watershed(-dist, nlabels, mask=mask)
+    else :
+        model = models.Cellpose(gpu=core.use_gpu(), model_type='cyto2')
+        clabels = model.eval(
+                img,
+                channel_axis = 0,
+                channels = [1,2],
+                diameter = d,
+                flow_threshold = 0.4,
+                cellprob_threshold = 0.1, # default is 0
+                min_size = 100000 # filter out smaller cells
+            )[0]
+
+    return clabels
 
 
-def segment_nuclei(img,pixel_size,scale):
+def segment_nuclei(img, pixel_size, scale):
     print('  Segmenting nuclei')
     d = 0.33*1000*scale/pixel_size[-1]
     model = models.Cellpose(gpu=True, model_type='nuclei')
-    mask, flows, styles, diams = model.eval(img, diameter=d, flow_threshold=None, channels=[0,0])
+    mask = model.eval(img, diameter=d, flow_threshold=None, channels=[0,0])[0]
     return mask
 
 
@@ -195,7 +241,7 @@ def segment_granules(img):
     return label(mask).astype(np.uint)
 
 
-def segment_image(img,pixel_size,scale):
+def segment_image(img:np.ndarray,pixel_size,scale,mode):
     print('Segmenting images')
     tmp = img['membrane']+img['granule']+img['other']
     tmp = ndimage.minimum_filter(ndimage.median_filter(tmp,5),11)
@@ -207,25 +253,57 @@ def segment_image(img,pixel_size,scale):
     }
     return labels
 
+def spatial_spread_roi(prop, image):
+    """Spread as the trace of the moment matrix in a region for all channels
+    Parameter
+    ---------
+    prop  : a single regionprop object
+    image : ndarray (C,H,W)
+    Result
+    ------
+    list of tupe (centroid x, centroid y, sxx, sxy, syy) for each channel
+    """
+    y,x = np.meshgrid(
+        np.arange(prop.bbox[0],prop.bbox[2]),
+        np.arange(prop.bbox[1],prop.bbox[3]),indexing='ij')
+    image = image[:,prop.bbox[0]:prop.bbox[2], prop.bbox[1]:prop.bbox[3]]
+    S = []
+    for weight in image:
+        w = weight *(weight>(weight.mean() + weight.std())) * prop.image
+        if (w.max()-w.min()) > 0 :
+            w = (w - w.min()) / (w.max() - w.min())
+        else:
+            w = prop.image
+        sw = np.sum(w)
+        if sw < 1e-9:
+            return 0.0
+        sx = np.sum(w * x) / sw
+        sy = np.sum(w * y) / sw
+        sxx = np.sum(w * np.square(x-sx)) / sw
+        syy = np.sum(w * np.square(y-sy)) / sw
+        sxy = np.sum(w * (x-sx) * (y-sy)) / sw
+        S.append((sx,sy,sxx,sxy,syy))
+    return S
 
-def spatial_spread(mask, intensity):
+def spatial_spread_mask(mask, intensity):
     """Spread as the trace of the moment matrix"""
     x,y = np.meshgrid(np.arange(mask.shape[1]), np.arange(mask.shape[0]))
-    w = mask * intensity
+
+    w = intensity *(intensity>(intensity.mean() + intensity.std())) * mask
     if (w.max()-w.min()) > 0 :
         w = (w - w.min()) / (w.max() - w.min())
     else:
-        return 0
+        w = mask
 
     sw = np.sum(w)
     if sw < 1e-9:
-        return 0.0
+        return 0.0, 0.0, 0.0, 0.0, 0.0
     sx = np.sum(w * x) / sw
     sy = np.sum(w * y) / sw
     sxx = np.sum(w * np.square(x-sx)) / sw
     syy = np.sum(w * np.square(y-sy)) / sw
-    #sxy = np.sum(w * (x-sx) * (y-sy)) / sw
-    return np.sqrt(sxx+syy)
+    sxy = np.sum(w * (x-sx) * (y-sy)) / sw
+    return sx,sy,sxx,sxy,syy
 
 
 def does_not_touch_image_border(roi,img):
@@ -241,15 +319,16 @@ def strech_range(x):
     return np.clip((x-b)/(a-b),0,1)
 
 
-def show_image(img, labels, rois):
+def show_image(img, labels, rois, stats):
     """Show the image with labels and rois"""
     visu = np.zeros([img['nuclei'].shape[0],img['nuclei'].shape[1],3])
-    visu[:,:,0] = strech_range(img['granule'])
-    visu[:,:,1] = strech_range(img['membrane'])
-    visu[:,:,2] = strech_range(img['nuclei'])
+    visu[:,:,0] = strech_range(img['other'])
+    visu[:,:,1] = strech_range(img['other'])
+    visu[:,:,2] = strech_range(img['other'])
+    #visu[:,:,1] = strech_range(img['membrane'])
+    #visu[:,:,2] = strech_range(img['nuclei'])
 
     plt.imshow(visu)
-
     for r in rois:
         try:
             c = find_contours(ndimage.binary_erosion(labels['cells']==r.label), 0.5)
@@ -262,16 +341,27 @@ def show_image(img, labels, rois):
         try:
             if r > 0:
                 c = find_contours(labels['nuclei']==r, 0.5)
-                plt.plot(c[0][:,1],c[0][:,0],'w',alpha=0.5)
+                plt.plot(c[0][:,1],c[0][:,0],'w',alpha=0.1)
         except:
             print('failed to show nuclei')
+
+    X = stats['Centroid X in cells of other channel']
+    Y = stats['Centroid Y in cells of other channel']
+    S = stats['Spread in cells of other channel']
+    for x,y,s in zip(X, Y, S):
+        try:
+            print(x,y,s)
+            c = plt.Circle((x, y), s, fill=False, color='r', alpha=0.75)
+            plt.gca().add_patch(c)
+        except:
+            print('failed to show spread')
     plt.axis('off')
 
 
-def show_roi(roi, img, labels):
+def show_roi(roi, img, labels, stats):
     """Show ROI"""
     masks,img = compute_roi_masks(roi, labels, img)
-    visu = np.zeros([img['nuclei'].shape[0],img['nuclei'].shape[1],3])
+    visu = np.zeros([img['nuclei'].shape[0], img['nuclei'].shape[1],3])
     visu[:,:,0] = strech_range(img['granule'])
     visu[:,:,1] = 0.15*strech_range(img['membrane'])
     visu[:,:,2] = 0.15*strech_range(img['nuclei'])
@@ -381,9 +471,14 @@ def measure_roi_stats(roi, img, masks, distances):
         bot = stats['Mean intensity in cytosol of ' + c + ' channel']
         top = stats['Mean intensity in particle of ' + c + ' channel']
         stats['Mean intensity ratio particle:cytosol of channel other'] = top / bot if bot > 0 else 0
-        tmp = morphology.white_tophat(img[c], morphology.disk(10))
-        stats['Spread in cells of '+ c + ' channel'] = spatial_spread(masks['cell'], tmp)
-        stats['Spread in particles of '+ c + ' channel'] = spatial_spread(masks['particle'], tmp)
+        tmp = gaussian_filter(img[c], 10)
+        sc = spatial_spread_mask(masks['cell'], tmp)
+        print(sc)
+        stats['Centroid X in cells of '+ c + ' channel'] = roi.bbox[1]+ sc[0]
+        stats['Centroid Y in cells of '+ c + ' channel'] = roi.bbox[0] + sc[1]
+        stats['Spread in cells of '+ c + ' channel'] = np.sqrt(sc[2]**2+sc[4]**2)
+        sp = spatial_spread_mask(masks['particle'], tmp)
+        stats['Spread in particles of '+ c + ' channel'] = np.sqrt(sp[2]**2+sp[4]**2)
 
     # colocalization
     I1 = img['granule'][masks['cell']].astype(float)
@@ -407,7 +502,6 @@ def measure_roi_stats(roi, img, masks, distances):
     stats['Average particles aspect ratio'] = np.mean(np.array([x.minor_axis_length / x.major_axis_length for x in particles])) if len(particles) > 0 else 0
     stats['Average particles solidity'] = np.mean(np.array([x.solidity for x in particles])) if len(particles) > 0 else 0
     stats['Average particles roundness'] = np.mean(np.array([4.0*x.area /(math.pi * x.major_axis_length**2) for x in particles])) if len(particles) > 0 else 0
-
     stats['Number of nuclei'] = len(nuclei)
     return stats
 
@@ -419,14 +513,19 @@ def config2img(img, config):
     return dst
 
 
-def process_fov(filename, position, config):
+def process_fov(filename, position, config, mode):
     data, pixel_size = load_image(filename, position)
     #data = deconvolve_all_channels(data,pixel_size,config)
     mip = config2img( projection(data), config['channels'])
-    labels = segment_image(mip, pixel_size, config['scale_um'])
+    labels = segment_image(mip, pixel_size, config['scale_um'], mode)
+
+    # define the list of ROI corresponding to the cells
     rois = regionprops(labels['cells'])
+
+    # discard ROI touching border
     rois = [x for x in rois if does_not_touch_image_border(x,mip)]
-    # discard too small cells
+
+    # discard too small cells ROI
     amin = 3.14 * (0.1*config['scale_um']*1e3 / pixel_size[1])**2
     rois = [x for x in rois if x.area > amin]
 
@@ -535,6 +634,8 @@ def process(args):
 
     fov =  filelist['fov'][idx]
 
+    mode = args.mode
+
     print('File:',filename)
     print('Field of view:', fov)
 
@@ -548,7 +649,7 @@ def process(args):
 
     print(config)
 
-    stats, mip, labels,rois = process_fov(filename, fov, config)
+    stats, mip, labels, rois = process_fov(filename, fov, config, mode)
 
     if args.output_by_cells is not None:
         print(f'Saving csv table to file {args.output_by_cells}')
@@ -560,7 +661,7 @@ def process(args):
         print(f'Saving vignette to file {args.output_vignette}')
         plt.style.use('default')
         plt.figure(figsize = (20, 20))
-        show_image(mip, labels, rois)
+        show_image(mip, labels, rois, stats)
         name = filelist['filename'][idx]
         condition = filelist['condition'][idx]
         plt.title(f'#{idx} file:{name} fov:{fov} condition:{condition}')
@@ -646,6 +747,7 @@ def main():
     parser_process.add_argument('--file-list',help='filelist',required=True)
     parser_process.add_argument('--index',help='file index',type=int,required=True)
     parser_process.add_argument('--config',help='json configuration file')
+    parser_process.add_argument('--mode',help='mode 0:default or 1:spread')
     parser_process.add_argument('--output-by-cells',help='filename of the output csv table by cell')
     parser_process.add_argument('--output-vignette',help='filename of the output vignette file')
     parser_process.set_defaults(func=process)

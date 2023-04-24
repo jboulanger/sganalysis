@@ -2,6 +2,7 @@
 import argparse
 import matplotlib.pyplot as plt
 import numpy as np
+import numpy.ma as ma
 from nd2reader import ND2Reader
 import math
 from scipy import ndimage
@@ -54,7 +55,7 @@ def load_image(filename, fov):
 
 
 def generate_otf3d(shape,pixel_size,wavelength,numerical_aperture,medium_refractive_index):
-    """ Generate a diffraction limited wide field optical transfer function and point spread function
+    """Generate a diffraction limited wide field optical transfer function and point spread function
 
     Parameters
     ----------
@@ -84,14 +85,15 @@ def generate_otf3d(shape,pixel_size,wavelength,numerical_aperture,medium_refract
 
 
 def deconvolve_richardson_lucy(data, otf, background=0, iterations=100):
-    """
-    Deconvolve data according to the given otf using a Richardson-Lucy algorithm
+    """Deconvolve data according to the given otf using a Richardson-Lucy algorithm
+
     Parameters
     ----------
     data       : numpy array
     otf        : numpy array of the same size than data
     background : background level
     iterations : number of iterations
+
     Result
     ------
     estimate   : estimated image
@@ -106,17 +108,19 @@ def deconvolve_richardson_lucy(data, otf, background=0, iterations=100):
 
 
 def deconvolve_richardson_lucy_heavy_ball(data, otf, background, iterations):
-    """
-    Deconvolve data according to the given otf using a scaled heavy ball Richardson-Lucy algorithm
+    """Deconvolve data according to the given otf using a scaled heavy ball Richardson-Lucy algorithm
+
     Parameters
     ----------
     data       : numpy array
     otf        : numpy array of the same size than data
     iterations : number of iterations
+
     Result
     ------
     estimate   : estimated image
     dkl        : the kullback leibler divergence (should tend to 1/2)
+
     Note
     ----
     https://doi.org/10.1109/tip.2013.2291324
@@ -253,6 +257,7 @@ def segment_image(img:np.ndarray,pixel_size,scale,mode):
     }
     return labels
 
+
 def spatial_spread_roi(prop, image):
     """Spread as the trace of the moment matrix in a region for all channels
     Parameter
@@ -280,17 +285,30 @@ def spatial_spread_roi(prop, image):
         sx = np.sum(w * x) / sw
         sy = np.sum(w * y) / sw
         sxx = np.sum(w * np.square(x-sx)) / sw
-        syy = np.sum(w * np.square(y-sy)) / sw
         sxy = np.sum(w * (x-sx) * (y-sy)) / sw
+        syy = np.sum(w * np.square(y-sy)) / sw
         S.append((sx,sy,sxx,sxy,syy))
     return S
 
 def spatial_spread_mask(mask, intensity):
-    """Spread as the trace of the moment matrix"""
+    """Spread as the trace of the moment matrix
+
+    Parameter
+    ---------
+    mask : mask on which to compute the spread (cell)
+    intensity : intensity in the selected channel
+
+    Result
+    ------
+    moments sx,sy,sxx,sxy,syy
+    """
+
     x,y = np.meshgrid(np.arange(mask.shape[1]), np.arange(mask.shape[0]))
 
-    w = intensity *(intensity>(intensity.mean() + intensity.std())) * mask
-    if (w.max()-w.min()) > 0 :
+    masking = (intensity > (intensity.mean() + intensity.std())) * mask
+    w = ma.array(intensity, mask = np.logical_not(masking))
+
+    if (w.max() - w.min()) > 0.1:
         w = (w - w.min()) / (w.max() - w.min())
     else:
         w = mask
@@ -298,11 +316,13 @@ def spatial_spread_mask(mask, intensity):
     sw = np.sum(w)
     if sw < 1e-9:
         return 0.0, 0.0, 0.0, 0.0, 0.0
+
     sx = np.sum(w * x) / sw
     sy = np.sum(w * y) / sw
     sxx = np.sum(w * np.square(x-sx)) / sw
-    syy = np.sum(w * np.square(y-sy)) / sw
     sxy = np.sum(w * (x-sx) * (y-sy)) / sw
+    syy = np.sum(w * np.square(y-sy)) / sw
+
     return sx,sy,sxx,sxy,syy
 
 
@@ -321,14 +341,13 @@ def strech_range(x):
 
 def show_image(img, labels, rois, stats):
     """Show the image with labels and rois"""
+
     visu = np.zeros([img['nuclei'].shape[0],img['nuclei'].shape[1],3])
     visu[:,:,0] = strech_range(img['other'])
-    visu[:,:,1] = strech_range(img['other'])
-    visu[:,:,2] = strech_range(img['other'])
-    #visu[:,:,1] = strech_range(img['membrane'])
-    #visu[:,:,2] = strech_range(img['nuclei'])
-
+    visu[:,:,1] = strech_range(img['membrane'])
+    visu[:,:,2] = strech_range(img['nuclei'])
     plt.imshow(visu)
+
     for r in rois:
         try:
             c = find_contours(ndimage.binary_erosion(labels['cells']==r.label), 0.5)
@@ -348,42 +367,55 @@ def show_image(img, labels, rois, stats):
     X = stats['Centroid X in cells of other channel']
     Y = stats['Centroid Y in cells of other channel']
     S = stats['Spread in cells of other channel']
+
     for x,y,s in zip(X, Y, S):
         try:
-            print(x,y,s)
             c = plt.Circle((x, y), s, fill=False, color='r', alpha=0.75)
             plt.gca().add_patch(c)
         except:
             print('failed to show spread')
+
     plt.axis('off')
 
 
 def show_roi(roi, img, labels, stats):
     """Show ROI"""
+
     masks,img = compute_roi_masks(roi, labels, img)
+
     visu = np.zeros([img['nuclei'].shape[0], img['nuclei'].shape[1],3])
     visu[:,:,0] = strech_range(img['granule'])
     visu[:,:,1] = 0.15*strech_range(img['membrane'])
     visu[:,:,2] = 0.15*strech_range(img['nuclei'])
     plt.imshow(visu)
+
     c = find_contours(masks['cell']==1, 0.5)
     plt.plot(c[0][:,1],c[0][:,0],'w')
-    p = find_contours((masks['particle']>0).astype(float), 0.5)
-    for pk in p:
-        plt.plot(pk[:,1],pk[:,0],'r')
+
+    #p = find_contours((masks['particle']>0).astype(float), 0.5)
+    #for pk in p:
+    #    plt.plot(pk[:,1],pk[:,0],'r')
+
     #plt.axis([roi.bbox[1]-50,roi.bbox[3]+50,roi.bbox[0]-50,roi.bbox[2]+50])
+    x = stats['Centroid X in cells of other channel'] - roi.bbox[1]
+    y = stats['Centroid Y in cells of other channel'] - roi.bbox[0]
+    s = stats['Spread in cells of other channel']
+    c = plt.Circle((x, y), s, fill=False, color='r', alpha=0.75)
+    plt.gca().add_patch(c)
     plt.axis('off')
     plt.title(f'ROI {roi.label}')
 
 
 def compute_roi_masks(roi, labels, img, border=20):
     """Compute a mask for each ROI
+
     Parameters
     ----------
     roi    : label of the roi
     labels : map of labels
     img    : a dictionnary of images
     border : border around the ROI
+
     Results
     -------
     mask : a dictionnary of cropped masks
@@ -431,12 +463,14 @@ def manders_coefficients(mask1,mask2,im1,im2):
 
 def measure_roi_stats(roi, img, masks, distances):
     """ measure statisics for a given roi
+
     Parameters
     ----------
     roi : roi from regionprops
     img : dictionnary of images with keys cells,nuclei,granule,other
     masks :  dictionnary of images with keys nucleus,cell,particle,cytosol,other
     distances : dictionnary of distances map with keys nuclei,membrane
+
     Note
     ----
     masks['particle'] and masks['other'] are labels while the others are binary
@@ -473,12 +507,11 @@ def measure_roi_stats(roi, img, masks, distances):
         stats['Mean intensity ratio particle:cytosol of channel other'] = top / bot if bot > 0 else 0
         tmp = gaussian_filter(img[c], 10)
         sc = spatial_spread_mask(masks['cell'], tmp)
-        print(sc)
-        stats['Centroid X in cells of '+ c + ' channel'] = roi.bbox[1]+ sc[0]
+        stats['Centroid X in cells of '+ c + ' channel'] = roi.bbox[1] + sc[0]
         stats['Centroid Y in cells of '+ c + ' channel'] = roi.bbox[0] + sc[1]
-        stats['Spread in cells of '+ c + ' channel'] = np.sqrt(sc[2]**2+sc[4]**2)
+        stats['Spread in cells of '+ c + ' channel'] = np.sqrt(sc[2]+sc[4])
         sp = spatial_spread_mask(masks['particle'], tmp)
-        stats['Spread in particles of '+ c + ' channel'] = np.sqrt(sp[2]**2+sp[4]**2)
+        stats['Spread in particles of '+ c + ' channel'] = np.sqrt(sp[2]+sp[4])
 
     # colocalization
     I1 = img['granule'][masks['cell']].astype(float)
@@ -513,11 +546,26 @@ def config2img(img, config):
     return dst
 
 
-def process_fov(filename, position, config, mode):
+def process_fov(filename, position, config):
+    """Process the field of view
+
+    Parameter
+    ---------
+    filename: image filename
+    position: position in the multiposition file
+    config: configuration with channel, scale and mode
+
+    Result
+    ------
+    stats: dataframe
+    mip: maximum intensity projection
+    labels: segmentation labels
+    rois: regionprops
+    """
     data, pixel_size = load_image(filename, position)
     #data = deconvolve_all_channels(data,pixel_size,config)
     mip = config2img( projection(data), config['channels'])
-    labels = segment_image(mip, pixel_size, config['scale_um'], mode)
+    labels = segment_image(mip, pixel_size, config['scale_um'], config['mode'])
 
     # define the list of ROI corresponding to the cells
     rois = regionprops(labels['cells'])
@@ -625,19 +673,19 @@ def process(args):
     """Sub command for processing item from a list of file / fov"""
 
     print("[ Process ]")
+
+    ### Parsing command line arguments ###
+
     idx = args.index # from 0 to N-1
+
     filelist = pd.read_csv(args.file_list)
+
     if args.data_path is not None:
         filename = os.path.join(args.data_path, filelist['filename'][idx])
     else:
         filename = filelist['filename'][idx]
 
     fov =  filelist['fov'][idx]
-
-    mode = args.mode
-
-    print('File:',filename)
-    print('Field of view:', fov)
 
     if args.config is not None:
         with open(args.config,'r') as configfile:
@@ -647,9 +695,15 @@ def process(args):
             print('Loading default configuration file')
             config = json.load(configfile)
 
-    print(config)
+    print(f'File: {filename}')
+    print(f'Field of view: {fov}')
+    print(f'Configuration: {config}')
 
-    stats, mip, labels, rois = process_fov(filename, fov, config, mode)
+    ### Start processing ###
+
+    stats, mip, labels, rois = process_fov(filename, fov, config)
+
+    ### Save the results ###
 
     if args.output_by_cells is not None:
         print(f'Saving csv table to file {args.output_by_cells}')
@@ -668,7 +722,8 @@ def process(args):
         plt.savefig(args.output_vignette)
 
 
-def facet_plot(data,cols,columns=4):
+def facet_plot(data, cols, columns=4):
+    """Create a boxplot for each column in a dataframe"""
     import math
     rows = math.ceil(len(cols)/columns)
     _, ax = plt.subplots(rows,columns,figsize=(6*columns, 6*rows))
@@ -690,7 +745,7 @@ def facet_plot(data,cols,columns=4):
 
 
 def make_figure(args):
-    """make a figure
+    """Make a figure
 
     The parameter args has file_list and data_path as attribute
 
@@ -747,7 +802,6 @@ def main():
     parser_process.add_argument('--file-list',help='filelist',required=True)
     parser_process.add_argument('--index',help='file index',type=int,required=True)
     parser_process.add_argument('--config',help='json configuration file')
-    parser_process.add_argument('--mode',help='mode 0:default or 1:spread')
     parser_process.add_argument('--output-by-cells',help='filename of the output csv table by cell')
     parser_process.add_argument('--output-vignette',help='filename of the output vignette file')
     parser_process.set_defaults(func=process)

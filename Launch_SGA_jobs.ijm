@@ -101,6 +101,7 @@ function config() {
 		Dialog.addRadioButtonGroup(channels[i], choices, 1, nchannels, "1");
 	}
 	Dialog.addNumber("scale [um]", 50);
+	Dialog.addChoice("Mode", newArray("Cellpose","Cellpose & Watershed"));
 	Dialog.show();
 	str = "{\"channels\":[";
 	for (i = 0; i < channels.length; i++) {
@@ -111,11 +112,16 @@ function config() {
 		}
 	}
 	scale = Dialog.getNumber();
-	str += "],\"NA\":0.95,\"medium_refractive_index\":1.4, \"scale_um\":"+scale+"}";	
+	if (matches(Dialog.getChoice(), "Cellpose & Watershed")) {
+		mode = 1;
+	} else {
+		mode = 0;
+	}
+	str += "],\"NA\":0.95,\"medium_refractive_index\":1.4, \"scale_um\":"+scale+", \"mode\":"+mode+"}";
 	print("Saving configuration file in folder");
 	print(folder+File.separator+"config.json");
 	File.saveString(str, folder+File.separator+"config.json");
-	print("Configuration file has been created, ready to process the dataset.");	
+	print("Configuration file has been created, ready to process the dataset.");
 	print(str);
 }
 

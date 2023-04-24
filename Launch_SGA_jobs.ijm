@@ -3,7 +3,7 @@
 #@File (label="Local share",description="Local mounting point of the network share", style="directory") local_share
 #@String (label="Remote share",description="Remote mounting point of the network share", value="/cephfs/") remote_share
 #@File(label="Folder", value="", style="directory",description="Path to the data folder from this computer") folder
-#@String(label="Action",choices={"Install","Scan ND2","Scan LSM","Config","Process","Figure","List Jobs"}) action
+#@String(label="Action",choices={"Install","Scan ND2","Scan LSM","Config","Process","Figure","List Jobs","Cancel Jobs"}) action
 
 /*
  * Launch slurm jobs for stress granule analysis
@@ -47,6 +47,8 @@ if (matches(action, "Scan ND2")) {
 	install();
 } else if (matches(action, "List Jobs")) {
 	listjobs();
+} else if (matches(action, "Cancel Jobs")) {
+	canceljobs();
 }
 
 function install() {
@@ -180,6 +182,24 @@ function listjobs() {
 		setResult("TIME",i-1,elem[5]);
 		setResult("LOG",i-1,local_jobs_dir + File.separator + "slurm-"+elem[0]+".out");
 	}
+}
+
+function canceljobs() {
+	print("[ List jobs ]");	
+	if (isOpen("Results")) { selectWindow("Results"); run("Close"); }
+	ret = exec("ssh", username+"@"+hostname, "squeue -u "+username);
+	lines = split(ret,"\n");
+	if (lines.length == 1) {
+		print("No jobs are running");
+	}
+	str = "";
+	for (i = 1; i < lines.length; i++) {
+		elem = split(lines[i]," ");
+		str += elem[0] + " ";		
+	}
+	print("Cancelling jobs " + str);
+	ret = exec("ssh", username+"@"+hostname, "scancel " + str);
+	print(ret);
 }
 
 function convert_slash(src) {

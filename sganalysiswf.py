@@ -100,7 +100,7 @@ def deconvolve_richardson_lucy(data, otf, background=0, iterations=100):
     dkl        : Kullback Leibler divergence
     """
     estimate = np.clip(np.real(np.fft.ifftn(otf * np.fft.fftn(data-background))), 1e-6, None)
-    for k in range(iterations):
+    for _ in range(iterations):
         blurred = np.clip(np.real(np.fft.ifftn(otf * np.fft.fftn(estimate+background))), 1e-6, None)
         ratio = data / blurred
         estimate = estimate * np.real(np.fft.ifftn(otf * np.fft.fftn(ratio)))
@@ -173,7 +173,7 @@ def projection(data):
         return data
 
 
-def segment_cells(img, pixel_size, scale:float, mode:int=0):
+def segment_cells(img, pixel_size, scale, mode):
     """Segment the cells in the image either using cellpose or cellpose and
     watershed
 
@@ -188,15 +188,16 @@ def segment_cells(img, pixel_size, scale:float, mode:int=0):
     ------
     label array (H,W)
     """
-    print('  Segmenting cells')
+    print(f' - Segmenting cells with mode {mode}')
 
     from scipy.ndimage import distance_transform_edt, median_filter
     from skimage.segmentation import watershed
-
-    d = 1000*scale/pixel_size[-1]
     #model = models.Cellpose(gpu=True, model_type='cyto2')
     #mask, flows, styles, diams = model.eval(img, diameter=d, flow_threshold=None, channels=[0,1])
+
     if mode == 1:
+        # segment the nuclei
+        d = 0.33*1000*scale/pixel_size[-1]
         model = models.Cellpose(gpu=core.use_gpu(), model_type='nuclei')
         nlabels = model.eval(
                 img,
@@ -207,16 +208,23 @@ def segment_cells(img, pixel_size, scale:float, mode:int=0):
                 cellprob_threshold = 0.1, # default is 0
                 min_size = 100000 # filter out smaller cells
             )[0]
+
+        # compute the distance transform as priority map from the nuclei
         dist = distance_transform_edt(nlabels > 0)
+
+        # compute a mask for the watershed
         mask = median_filter(np.amax(img,0), 11)
         mask = mask > mask[mask < np.quantile(mask, 0.1)].mean()
+
+        # apply a watershed
         clabels = watershed(-dist, nlabels, mask=mask)
     else :
+        d = 1000 * scale/pixel_size[-1]
         model = models.Cellpose(gpu=core.use_gpu(), model_type='cyto2')
         clabels = model.eval(
                 img,
                 channel_axis = 0,
-                channels = [1,2],
+                channels = [0,1],
                 diameter = d,
                 flow_threshold = 0.4,
                 cellprob_threshold = 0.1, # default is 0
@@ -227,15 +235,15 @@ def segment_cells(img, pixel_size, scale:float, mode:int=0):
 
 
 def segment_nuclei(img, pixel_size, scale):
-    print('  Segmenting nuclei')
+    print(' - Segmenting nuclei')
     d = 0.33*1000*scale/pixel_size[-1]
-    model = models.Cellpose(gpu=True, model_type='nuclei')
+    model = models.Cellpose(gpu=core.use_gpu(), model_type='nuclei')
     mask = model.eval(img, diameter=d, flow_threshold=None, channels=[0,0])[0]
     return mask
 
 
 def segment_granules(img):
-    print('  Segmenting granule')
+    print(' - Segmenting granule')
     flt = difference_of_gaussians(np.sqrt(img.astype(float)), 2, 4)
     t = flt.mean() + 2 * flt.std()
     mask = morphology.remove_small_holes(
@@ -245,16 +253,26 @@ def segment_granules(img):
     return label(mask).astype(np.uint)
 
 
-def segment_image(img:np.ndarray,pixel_size,scale,mode):
+def segment_image(img, pixel_size, config):
     print('Segmenting images')
-    tmp = img['membrane']+img['granule']+img['other']
-    tmp = ndimage.minimum_filter(ndimage.median_filter(tmp,5),11)
-    labels = {
-        "cells"   : segment_cells(np.stack([tmp, img['nuclei']]),pixel_size,scale),
-        "nuclei"  : segment_nuclei(img["nuclei"],pixel_size,scale),
-        "granule" : segment_granules(img["granule"]),
-        "other"   : segment_granules(img["other"])
-    }
+    scale = config['scale_um']
+    mode = config['mode']
+    if config['Analysis'] == 'SG':
+        tmp = img['membrane']+img['granule']+img['other']
+        tmp = ndimage.minimum_filter(ndimage.median_filter(tmp,5),11)
+        labels = {
+            "cells"   : segment_cells(np.stack([tmp, img['nuclei']]),pixel_size,scale,mode),
+            "nuclei"  : segment_nuclei(img["nuclei"],pixel_size,scale),
+            "granule" : segment_granules(img["granule"]),
+            "other"   : segment_granules(img["other"])
+        }
+    else :
+        tmp = sum([img[c] for c in img if c != 'nuclei'])
+        tmp = ndimage.minimum_filter(ndimage.median_filter(tmp,5),11)
+        labels = {
+            "cells"   : segment_cells(np.stack([tmp, img['nuclei']]),pixel_size,scale,mode),
+            "nuclei"  : segment_nuclei(img["nuclei"], pixel_size, scale)
+        }
     return labels
 
 
@@ -315,7 +333,7 @@ def spatial_spread_mask(mask, intensity):
 
     sw = np.sum(w)
     if sw < 1e-9:
-        return 0.0, 0.0, 0.0, 0.0, 0.0
+        return 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 
     sx = np.sum(w * x) / sw
     sy = np.sum(w * y) / sw
@@ -323,7 +341,37 @@ def spatial_spread_mask(mask, intensity):
     sxy = np.sum(w * (x-sx) * (y-sy)) / sw
     syy = np.sum(w * np.square(y-sy)) / sw
 
-    return sx,sy,sxx,sxy,syy
+    # compute distance ditribution
+    d = np.sqrt(np.square(x - sx) + np.square(x - sy))
+    nbins = 30
+    h = np.zeros(nbins)
+    r = np.linspace(0, d.max(), nbins+1)
+    for k in range(nbins):
+        select = np.logical_and(d > r[k], d < r[k+1], dtype=float)
+        select_sum = select.sum()
+        if select_sum > 0:
+            h[k] = (select * w).sum() / select.sum()
+        else:
+            select_sum = 0
+
+    # find the radius where cumsum(h) == 0.5
+    h = h / h.sum()
+    F = np.cumsum(h)
+    r0 = np.interp(0.5, F, r[:-1])
+
+    #plt.figure()
+    #plt.subplot(141)
+    #plt.imshow(mask)
+    #plt.subplot(142)
+    #plt.imshow(w)
+    #plt.subplot(143)
+    #plt.imshow(intensity)
+
+    #r0 = np.argwhere(F<0.75)[-1]
+    #plt.subplot(144)
+    #plt.plot(r[:-1], F)
+    #plt.plot([r0,r0], [0,1], 'r-')
+    return sx,sy,sxx,sxy,syy,r0
 
 
 def does_not_touch_image_border(roi,img):
@@ -333,19 +381,53 @@ def does_not_touch_image_border(roi,img):
 
 
 def strech_range(x):
-    """Stretch the range of the array between 0 and 1"""
-    a = 0.95 * x.max()
-    b = 1.05 * x.min()
+    """Stretch the range of the array between 0 and 1 for display"""
+    a = x.mean() + 4 * x.std()
+    b = np.median(x)
     return np.clip((x-b)/(a-b),0,1)
+
+
+def draw_spread(stats, channel, color, bbox = [0,0,1,1]):
+
+    X = stats[f'Centroid X {channel}'] - bbox[1]
+    Y = stats[f'Centroid Y {channel}'] - bbox[0]
+    #S = stats[f'Radius P {channel}']
+    S = stats[f'Spread {channel}']
+
+    try : #  X,Y,S are iterable
+        for x,y,s in zip(X, Y, S):
+            c = plt.Circle((x, y), s, fill=False, color=color, alpha=0.75, lw=2)
+            plt.gca().add_patch(c)
+    except:
+        pass
+    try :  # X,Y,S are not iterable
+        c = plt.Circle((X, Y), S, fill=False, color=color, alpha=0.75, lw=3)
+        plt.gca().add_patch(c)
+    except:
+        pass
+
+def img2rgb(img):
+    """Convert a dictionnary of images to a RGB [H,W,C] array"""
+    visu = np.zeros([img['nuclei'].shape[0],img['nuclei'].shape[1],3])
+    if 'granule' in img.keys():
+        tmp = strech_range(img['granule'])
+        visu[:,:,0] = 0.5*(strech_range(img['other']) + tmp)
+        visu[:,:,1] = 0.5*(strech_range(img['membrane']) + tmp)
+        visu[:,:,2] = 0.5*(strech_range(img['nuclei']) + tmp)
+    else:
+        visu[:,:,2] = strech_range(img['nuclei'])
+        n = 0
+        for c in img.keys():
+            if c != 'nuclei' and n <= 2:
+                visu[:,:,n] = strech_range(img[c])
+                n = n + 1
+    return visu
 
 
 def show_image(img, labels, rois, stats):
     """Show the image with labels and rois"""
 
-    visu = np.zeros([img['nuclei'].shape[0],img['nuclei'].shape[1],3])
-    visu[:,:,0] = strech_range(img['other'])
-    visu[:,:,1] = strech_range(img['membrane'])
-    visu[:,:,2] = strech_range(img['nuclei'])
+    visu = img2rgb(img)
     plt.imshow(visu)
 
     for r in rois:
@@ -360,20 +442,20 @@ def show_image(img, labels, rois, stats):
         try:
             if r > 0:
                 c = find_contours(labels['nuclei']==r, 0.5)
-                plt.plot(c[0][:,1],c[0][:,0],'w',alpha=0.1)
+                plt.plot(c[0][:,1],c[0][:,0],'w',alpha=0.5)
         except:
             print('failed to show nuclei')
 
-    X = stats['Centroid X in cells of other channel']
-    Y = stats['Centroid Y in cells of other channel']
-    S = stats['Spread in cells of other channel']
-
-    for x,y,s in zip(X, Y, S):
-        try:
-            c = plt.Circle((x, y), s, fill=False, color='r', alpha=0.75)
-            plt.gca().add_patch(c)
-        except:
-            print('failed to show spread')
+    if 'granule' in img.keys():
+        draw_spread(stats,f'in cells of '+ c + ' channel', 'red')
+        draw_spread(stats,'granule', 'green')
+    else:
+        color = ['red','green','blue','white']
+        n = 0
+        for c in img.keys():
+            if c != 'nuclei':
+                draw_spread(stats,f'of {c}', color[n])
+                n = n + 1
 
     plt.axis('off')
 
@@ -381,27 +463,25 @@ def show_image(img, labels, rois, stats):
 def show_roi(roi, img, labels, stats):
     """Show ROI"""
 
-    masks,img = compute_roi_masks(roi, labels, img)
+    masks, img = compute_roi_masks(roi, labels, img)
 
-    visu = np.zeros([img['nuclei'].shape[0], img['nuclei'].shape[1],3])
-    visu[:,:,0] = strech_range(img['granule'])
-    visu[:,:,1] = 0.15*strech_range(img['membrane'])
-    visu[:,:,2] = 0.15*strech_range(img['nuclei'])
+    visu = img2rgb(img)
     plt.imshow(visu)
 
     c = find_contours(masks['cell']==1, 0.5)
     plt.plot(c[0][:,1],c[0][:,0],'w')
 
-    #p = find_contours((masks['particle']>0).astype(float), 0.5)
-    #for pk in p:
-    #    plt.plot(pk[:,1],pk[:,0],'r')
+    if 'granule' in img.keys():
+        draw_spread(stats,f'in cells of granule channel', 'red')
+    else:
+        color = ['red','green','blue','white']
+        n = 0
+        for c in img.keys():
+            if c != 'nuclei':
+                draw_spread(stats, f'of {c}', color[n], roi.bbox)
+                n = n + 1
 
-    #plt.axis([roi.bbox[1]-50,roi.bbox[3]+50,roi.bbox[0]-50,roi.bbox[2]+50])
-    x = stats['Centroid X in cells of other channel'] - roi.bbox[1]
-    y = stats['Centroid Y in cells of other channel'] - roi.bbox[0]
-    s = stats['Spread in cells of other channel']
-    c = plt.Circle((x, y), s, fill=False, color='r', alpha=0.75)
-    plt.gca().add_patch(c)
+
     plt.axis('off')
     plt.title(f'ROI {roi.label}')
 
@@ -425,19 +505,35 @@ def compute_roi_masks(roi, labels, img, border=20):
     img_crop = {k: img[k][roi.bbox[0]-border:roi.bbox[2]+border,roi.bbox[1]-border:roi.bbox[3]+border] for k in img}
     not_nuclei = (crop['nuclei']==0)
     cell = (crop['cells'] == roi.label)
-    mask = {
-        'nucleus'  : cell * crop['nuclei'],
-        'cell'     : cell,
-        'particle' : cell * not_nuclei *  crop['granule'],
-        'cytosol'  : cell * not_nuclei * (crop['granule']==0),
-        'other'    : cell * not_nuclei *  crop['other']
-    }
+
+    if 'granule' in labels.keys():
+        mask = {
+            'nucleus'  : cell * crop['nuclei'],
+            'cell'     : cell,
+            'particle' : cell * not_nuclei *  crop['granule'],
+            'cytosol'  : cell * not_nuclei * (crop['granule']==0),
+            'other'    : cell * not_nuclei *  crop['other']
+        }
+    else:
+        mask = {
+            'nucleus'  : cell * crop['nuclei'],
+            'cell'     : cell
+        }
 
     return mask, img_crop
 
 
 def compute_roi_distance(masks):
-    """Distance map for a dictionary of mask and returns a dictionary"""
+    """Distance maps for nuclei and membrane
+
+    Parameter
+    ---------
+    masks: dictionnary with nucleus and cells masks
+
+    Result
+    ------
+    distances: dictionnary with distance to nucleus, membrane, and fraction
+    """
     d1 = edt.edt(1-(masks['nucleus']>0).astype(int))
     d2 = edt.edt(masks['cell'])
     d1[np.logical_not(np.isfinite(d1))] = 0
@@ -538,6 +634,46 @@ def measure_roi_stats(roi, img, masks, distances):
     stats['Number of nuclei'] = len(nuclei)
     return stats
 
+def measure_roi_spread(roi, img, masks, distances):
+    """Measure spread statisics
+
+    Parameters
+    ----------
+    roi : roi from regionprops
+    img : dictionnary of images with keys cells,nuclei,granule,other
+    masks :  dictionnary of images with keys nucleus,cell,particle,cytosol,other
+    distances : dictionnary of distances map with keys nuclei,membrane
+
+    Note
+    ----
+    masks['particle'] and masks['other'] are labels while the others are binary
+    """
+
+    nuclei = regionprops(masks['nucleus'])
+
+    sum_mask = np.sum(masks['cell']>0, dtype=float)
+    sum_nuc = np.sum(masks['nucleus']>0, dtype=float)
+
+    stats = {
+        'Cell ID' : roi.label,
+        'Area of the whole cell [px^2]': sum_mask,
+        'Area of the nuclei [px^2]': sum_nuc,
+        'Number of nuclei' : len(nuclei)
+    }
+
+    # measure intensity and spread in channels
+    for c in img:
+        sum_mask_x_img = ((masks['cell'] > 0).astype(float) * (img[c].astype(float))).sum()
+        stats[f'Total intensity in {c}'] = sum_mask_x_img
+        stats[f'Mean intensity in {c}'] = sum_mask_x_img / sum_mask if sum_mask > 0 else 0
+        tmp = gaussian_filter(img[c], 5)
+        sc = spatial_spread_mask(masks['cell'], tmp)
+        stats['Centroid X of '+ c] = roi.bbox[1] + sc[0]
+        stats['Centroid Y of '+ c] = roi.bbox[0] + sc[1]
+        stats['Spread of '+ c] = np.sqrt(sc[2]+sc[4])
+        stats['Radius P of '+ c] = sc[5]
+    return stats
+
 
 def config2img(img, config):
     dst = dict()
@@ -562,10 +698,14 @@ def process_fov(filename, position, config):
     labels: segmentation labels
     rois: regionprops
     """
+
     data, pixel_size = load_image(filename, position)
+
     #data = deconvolve_all_channels(data,pixel_size,config)
+
     mip = config2img( projection(data), config['channels'])
-    labels = segment_image(mip, pixel_size, config['scale_um'], config['mode'])
+
+    labels = segment_image(mip, pixel_size, config)
 
     # define the list of ROI corresponding to the cells
     rois = regionprops(labels['cells'])
@@ -577,6 +717,7 @@ def process_fov(filename, position, config):
     amin = 3.14 * (0.1*config['scale_um']*1e3 / pixel_size[1])**2
     rois = [x for x in rois if x.area > amin]
 
+    print(' - Compute ROI statistics')
     stats = []
     for k,roi in enumerate(rois):
         try :
@@ -590,6 +731,37 @@ def process_fov(filename, position, config):
 
     return stats, mip, labels, rois
 
+
+def process_fov_spread(filename, position, config):
+    data, pixel_size = load_image(filename, position)
+
+    mip = config2img( projection(data), config['channels'])
+
+    labels = segment_image(mip, pixel_size, config)
+
+    # define the list of ROI corresponding to the cells
+    rois = regionprops(labels['cells'])
+
+    # discard ROI touching border
+    rois = [x for x in rois if does_not_touch_image_border(x,mip)]
+
+    # discard too small cells ROI
+    amin = 3.14 * (0.1*config['scale_um']*1e3 / pixel_size[1])**2
+    rois = [x for x in rois if x.area > amin]
+
+    print(' - Compute ROI statistics')
+    stats = []
+    for k,roi in enumerate(rois):
+        try :
+            masks, crop_img = compute_roi_masks(roi, labels, mip, border=0)
+            distances = compute_roi_distance(masks)
+            stats.append(measure_roi_spread(roi, crop_img, masks, distances))
+        except:
+            print('Error encountered for ROI', k)
+
+    stats = pd.DataFrame(stats)
+
+    return stats, mip, labels, rois
 
 def scan_folder_nd2(folder:Path):
     """list the field of views of a ND2 file

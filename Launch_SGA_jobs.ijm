@@ -3,7 +3,7 @@
 #@File (label="Local share",description="Local mounting point of the network share", style="directory") local_share
 #@String (label="Remote share",description="Remote mounting point of the network share", value="/cephfs/") remote_share
 #@File(label="Folder", value="", style="directory",description="Path to the data folder from this computer") folder
-#@String(label="Action",choices={"Install","Scan ND2","Scan LSM","Config","Process","Figure","List Jobs","Cancel Jobs"}) action
+#@String(label="Action",choices={"Install","Scan ND2","Scan LSM","Config SG","Config Spread","Process","Figure","List Jobs","Cancel Jobs"}) action
 
 /*
  * Launch slurm jobs for stress granule analysis
@@ -37,8 +37,10 @@ if (matches(action, "Scan ND2")) {
 	scannd2();
 } else if(matches(action, "Scan LSM")){
 	scanlsm();
-} else if (matches(action, "Config")) {
-	config();
+} else if (matches(action, "Config SG")) {
+	configSG();
+} else if (matches(action, "Config Spread")) {
+	configSpread();
 } else if (matches(action, "Process")) {
 	process();
 }else if (matches(action, "Figure")) {
@@ -88,7 +90,7 @@ function scanlsm() {
 	print(" Next: edit channel orders in the config.json file.");	
 }
 
-function config() {
+function configSG() {
 	print("[ Configuration file ]");
 	print(folder);
 	Table.open(folder+"/filelist.csv");
@@ -105,10 +107,50 @@ function config() {
 	Dialog.addNumber("scale [um]", 50);
 	Dialog.addChoice("Mode", newArray("Cellpose","Cellpose & Watershed"));
 	Dialog.show();
-	str = "{\"channels\":[";
+	str = "{\"Analysis\":\"SG\", \"channels\":[";
 	for (i = 0; i < channels.length; i++) {
 		j = parseInt(Dialog.getRadioButton());
 		str += "{\"index\":" + j-1 + ", \"name\":\"" + channels[i] + "\"}";
+		if (i!= channels.length-1) {
+			str+=",";
+		}
+	}
+	scale = Dialog.getNumber();
+	if (matches(Dialog.getChoice(), "Cellpose & Watershed")) {
+		mode = 1;
+	} else {
+		mode = 0;
+	}
+	str += "],\"NA\":0.95,\"medium_refractive_index\":1.4, \"scale_um\":"+scale+", \"mode\":"+mode+"}";
+	print("Saving configuration file in folder");
+	print(folder+File.separator+"config.json");
+	File.saveString(str, folder+File.separator+"config.json");
+	print("Configuration file has been created, ready to process the dataset.");
+	print(str);
+}
+
+function configSpread() {
+	print("[ Configuration file ]");
+	print(folder);
+	Table.open(folder+"/filelist.csv");
+	nchannels = Table.get("channels", 1);
+	print("Images have "+nchannels+" channels");
+	run("Close");	
+	Dialog.create("Channel Configuration Tool");
+	
+	choices = newArray("1","2","3","4");
+	choices = Array.trim(choices, nchannels);
+	channels = newArray("nuclei","membrane","granule","other");
+	for (i = 0; i < channels.length; i++) {		
+		Dialog.addString("Channel "+(i+1), "channel"+(i+1));
+	}
+	Dialog.addNumber("scale [um]", 50);
+	Dialog.addChoice("Mode", newArray("Cellpose","Cellpose & Watershed"));
+	Dialog.show();
+	str = "{\"Analysis\":\"Spread\", \"channels\":[";
+	for (i = 0; i < channels.length; i++) {
+		chname = Dialog.getString();
+		str += "{\"index\":" + i + ", \"name\":\"" + chname + "\"}";
 		if (i!= channels.length-1) {
 			str+=",";
 		}
@@ -135,7 +177,16 @@ function process() {
 		File.makeDirectory(folder+File.separator+"results");
 	}
 	jobname = "sga-process.sh";
-	str  = "#!/bin/tcsh\n#SBATCH --job-name=sga-process\n#SBATCH --time=05:00:00\n#SBATCH --partition=gpu\n#SBATCH --gres=gpu:1\nconda activate sganalysis\nset I=`printf %06d $SLURM_ARRAY_TASK_ID`\npython sganalysiswf.py process --data-path=\""+remote_path+"\" --file-list \""+remote_path+"/filelist.csv\" --index $I --output-by-cells \""+remote_path+"\"/results/cells$I.csv --output-vignette \""+remote_path+"\"/results/vignettes$I.png";
+	str  = "#!/bin/tcsh\n#SBATCH --job-name=sga-process\n";
+	str += "#SBATCH --time=05:00:00\n";
+	str += "#SBATCH --partition=gpu\n";
+	str += "#SBATCH --gres=gpu:1\n";
+	str += "conda activate sganalysis\n";
+	str += "set I=`printf %06d $SLURM_ARRAY_TASK_ID`\n";
+	str += "python sganalysiswf.py process --data-path=\""+remote_path+"\" ";
+	str += "--file-list \""+remote_path+"/filelist.csv\" --index $I ";
+	str += "--output-by-cells \""+remote_path+"\"/results/cells$I.csv ";
+	str += "--output-vignette \""+remote_path+"\"/results/vignettes$I.png";
 	File.saveString(str,local_jobs_dir+File.separator+jobname);
 	Table.open(folder+File.separator+"filelist.csv");
 	n = Table.size;

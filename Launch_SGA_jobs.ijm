@@ -63,7 +63,7 @@ function install() {
 }
 
 function scannd2() {
-	print("[ Scanning data folder for nd2 files]");
+	print("[ Scanning data folder for ND2 files]");
 	print("List all files in the data folder and create a filelist.csv file.");
 	print(" - Remote path " + remote_path);
 	print(" - File list " + remote_path+"/filelist.csv");
@@ -91,7 +91,7 @@ function scanlsm() {
 }
 
 function configSG() {
-	print("[ Configuration file ]");
+	print("[ Configuration file for stress granule analysis]");
 	print(folder);
 	Table.open(folder+"/filelist.csv");
 	nchannels = Table.get("channels", 1);
@@ -130,7 +130,7 @@ function configSG() {
 }
 
 function configSpread() {
-	print("[ Configuration file ]");
+	print("[ Configuration file for Spread analysis ]");
 	print(folder);
 	Table.open(folder+"/filelist.csv");
 	nchannels = Table.get("channels", 1);
@@ -140,11 +140,12 @@ function configSpread() {
 	
 	choices = newArray("1","2","3","4");
 	choices = Array.trim(choices, nchannels);
-	channels = newArray("nuclei","membrane","granule","other");
+	channels = newArray("nuclei","label1","label2","label3");
+	Dialog.addMessage("Indicate the labels in channel order\nwith least one nuclei");
 	for (i = 0; i < channels.length; i++) {		
-		Dialog.addString("Channel "+(i+1), "channel"+(i+1));
+		Dialog.addString("Channel "+(i+1), channels[i]);
 	}
-	Dialog.addNumber("scale [um]", 50);
+	Dialog.addNumber("scale [um]", 50);	
 	Dialog.addChoice("Mode", newArray("Cellpose","Cellpose & Watershed"));
 	Dialog.show();
 	str = "{\"Analysis\":\"Spread\", \"channels\":[";
@@ -171,7 +172,7 @@ function configSpread() {
 
 function process() {
 	print("[ Processing a list of files ]");
-	print("Open filelist.csv and create a job for each time.");
+	print("Open filelist.csv and create a job for each line.");
 	if (!File.exists(folder+File.separator+"results")) {
 		print("Creating results directory");
 		File.makeDirectory(folder+File.separator+"results");

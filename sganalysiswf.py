@@ -674,6 +674,8 @@ def measure_roi_spread(roi, img, masks, distances):
         stats['Radius P of '+ c] = sc[5]
     return stats
 
+def load_config(path):
+    return json.load(open(path))
 
 def config2img(img, config):
     dst = dict()
@@ -733,6 +735,19 @@ def process_fov(filename, position, config):
 
 
 def process_fov_spread(filename, position, config):
+    """Process the field of view with spread analsysis
+
+    Parameters
+    ----------
+    filename : name of the file
+    position : index of the field of view
+    config   : dictionnary with the field of view
+
+    Result
+    ------
+    stats, mip, labels, rois
+    """
+    print('process fov spread')
     data, pixel_size = load_image(filename, position)
 
     mip = config2img( projection(data), config['channels'])
@@ -870,10 +885,13 @@ def process(args):
     print(f'File: {filename}')
     print(f'Field of view: {fov}')
     print(f'Configuration: {config}')
+    print(f'Analysis: {config["Analysis"]}')
 
     ### Start processing ###
-
-    stats, mip, labels, rois = process_fov(filename, fov, config)
+    if config['Analysis'] == 'SG':
+        stats, mip, labels, rois = process_fov(filename, fov, config)
+    else:
+        stats, mip, labels, rois = process_fov_spread(filename, fov, config)
 
     ### Save the results ###
 

@@ -308,7 +308,7 @@ def spatial_spread_roi(prop, image):
         S.append((sx,sy,sxx,sxy,syy))
     return S
 
-def spatial_spread_mask(mask, intensity):
+def spatial_spread_mask(mask, intensity, fraction=0.25):
     """Spread as the trace of the moment matrix
 
     Parameter
@@ -323,13 +323,20 @@ def spatial_spread_mask(mask, intensity):
 
     x,y = np.meshgrid(np.arange(mask.shape[1]), np.arange(mask.shape[0]))
 
-    masking = (intensity > (intensity.mean() + intensity.std())) * mask
-    w = ma.array(intensity, mask = np.logical_not(masking))
-
+    #masking = mask
+    #w = intensity - intensity.min()) * masking
+    #w = ma.array(intensity, mask = np.logical_not(masking))
+    #x = ma.array(x, mask = np.logical_not(masking))
+    #y = ma.array(y, mask = np.logical_not(masking))
+    #w = intensity
+    intensity=intensity-intensity.min()
+    w = intensity
     if (w.max() - w.min()) > 0.1:
         w = (w - w.min()) / (w.max() - w.min())
+        w  = w * (w > 0.5) * mask
     else:
         w = mask
+
 
     sw = np.sum(w)
     if sw < 1e-9:
@@ -342,35 +349,49 @@ def spatial_spread_mask(mask, intensity):
     syy = np.sum(w * np.square(y-sy)) / sw
 
     # compute distance ditribution
-    d = np.sqrt(np.square(x - sx) + np.square(x - sy))
-    nbins = 30
+    d = np.sqrt(np.square(x - sx) + np.square(y - sy))
+    nbins = 100
     h = np.zeros(nbins)
     r = np.linspace(0, d.max(), nbins+1)
     for k in range(nbins):
-        select = np.logical_and(d > r[k], d < r[k+1], dtype=float)
+        select = np.logical_and(d > r[k], d <= r[k+1], dtype=float)
+        select = np.logical_and(select, mask, dtype=float)
         select_sum = select.sum()
         if select_sum > 0:
-            h[k] = (select * w).sum() / select.sum()
+            h[k] = (select * intensity).sum() / select.sum()
         else:
             select_sum = 0
 
     # find the radius where cumsum(h) == 0.5
     h = h / h.sum()
     F = np.cumsum(h)
-    r0 = np.interp(0.5, F, r[:-1])
+    #F = F / F[-1]
+    r0 = np.interp(fraction, F, r[:-1])
+    k0 = np.argwhere(F<fraction)[-1]
 
-    #plt.figure()
-    #plt.subplot(141)
-    #plt.imshow(mask)
-    #plt.subplot(142)
-    #plt.imshow(w)
-    #plt.subplot(143)
-    #plt.imshow(intensity)
+    # plt.figure()
+    # plt.subplot(141)
+    # plt.imshow(mask)
+    # select = np.logical_and(d > r[k0], d < r[k0+1], dtype=float)
+    # select = np.logical_and(select, mask, dtype=float)
+    # plt.imshow(intensity*select)
+    # plt.axis('off')
 
-    #r0 = np.argwhere(F<0.75)[-1]
-    #plt.subplot(144)
-    #plt.plot(r[:-1], F)
-    #plt.plot([r0,r0], [0,1], 'r-')
+    # plt.subplot(142)
+    # plt.imshow(w)
+    # plt.axis('off')
+
+    # plt.subplot(143)
+    # plt.imshow(intensity)
+    # plt.plot(sx,sy,'w+')
+    # plt.axis('off')
+
+
+    # plt.subplot(144)
+    # plt.plot(r[:-1], F)
+    # plt.plot([r0,r0], [0,1], 'r-')
+    # plt.gca().set_box_aspect(1)
+
     return sx,sy,sxx,sxy,syy,r0
 
 
@@ -391,8 +412,8 @@ def draw_spread(stats, channel, color, bbox = [0,0,1,1]):
 
     X = stats[f'Centroid X {channel}'] - bbox[1]
     Y = stats[f'Centroid Y {channel}'] - bbox[0]
-    #S = stats[f'Radius P {channel}']
-    S = stats[f'Spread {channel}']
+    S = stats[f'Radius P {channel}']
+    #S = stats[f'Spread {channel}']
 
     try : #  X,Y,S are iterable
         for x,y,s in zip(X, Y, S):
@@ -454,7 +475,7 @@ def show_image(img, labels, rois, stats):
         n = 0
         for c in img.keys():
             if c != 'nuclei':
-                draw_spread(stats,f'of {c}', color[n])
+                draw_spread(stats, f'of {c}', color[n])
                 n = n + 1
 
     plt.axis('off')
@@ -894,7 +915,6 @@ def process(args):
         stats, mip, labels, rois = process_fov_spread(filename, fov, config)
 
     ### Save the results ###
-
     if args.output_by_cells is not None:
         print(f'Saving csv table to file {args.output_by_cells}')
         stats['input'] = args.file_list
@@ -915,8 +935,9 @@ def process(args):
 def facet_plot(data, cols, columns=4):
     """Create a boxplot for each column in a dataframe"""
     import math
-    rows = math.ceil(len(cols)/columns)
+    rows = math.ceil(len(cols) / columns)
     _, ax = plt.subplots(rows,columns,figsize=(6*columns, 6*rows))
+    ax = np.reshape(ax, (rows, columns))
     for r in range(rows):
         for c in range(columns):
             if columns * r + c < len(cols)-1:
@@ -930,8 +951,11 @@ def facet_plot(data, cols, columns=4):
                         ax[r,c].set(ylabel=None)
                         ax[r,c].set(yticklabels=[])
 
-                except:
-                    print(f'cound not show column {cols[columns*r+c]}')
+                except Exception as e:
+                    print('***')
+                    print(f'* could not show column "{cols[columns*r+c]}"')
+                    print(f'* {e}')
+                    print('***')
 
 
 def make_figure(args):
@@ -943,9 +967,10 @@ def make_figure(args):
     """
     print("[ Figure ]")
     plt.style.use('default')
-    cells=[]
+    cells = []
     folder = Path(args.data_path)
-    filelist = pd.read_csv(args.file_list,index_col='index')
+    filelist = pd.read_csv(args.file_list, index_col='index')
+
     for k in range(len(filelist)):
         try:
             cells.append(pd.read_csv(folder/'results'/f'cells{k:06d}.csv'))
@@ -964,9 +989,13 @@ def make_figure(args):
 
     sns.set()
     sns.set_style("ticks")
-    a = cells.columns.tolist().index('Cell ID')+1
-    b = cells.columns.tolist().index('Number of nuclei')+2
-    facet_plot(cells, cells.columns[a:b], 4)
+
+    # filter our columns
+    exclude = ['index', 'filename', 'fov', 'channels', 'Cell ID', 'input']
+    columns = [x for x in cells.columns if x not in exclude]
+
+    # make a boxplot for each selected column
+    facet_plot(cells, columns, 4)
     figname = os.path.join(args.data_path, 'results', 'cells.pdf')
     print(f'Saving figure to file {figname}')
     plt.savefig(figname)

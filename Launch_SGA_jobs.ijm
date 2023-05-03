@@ -48,9 +48,9 @@ if (matches(action, "Scan ND2")) {
 } else if (matches(action, "Install")) {
 	install();
 } else if (matches(action, "List Jobs")) {
-	listjobs();
+	listJobs();
 } else if (matches(action, "Cancel Jobs")) {
-	canceljobs();
+	cancelJobs();
 }
 
 function install() {
@@ -68,12 +68,12 @@ function scannd2() {
 	print(" - Remote path " + remote_path);
 	print(" - File list " + remote_path+"/filelist.csv");
 	jobname = "sga-scan.sh";
-	str  = "#!/bin/tcsh\n#SBATCH --job-name=sg-scan\n#SBATCH --time=01:00:00\nconda activate sganalysis\npython sganalysiswf.py scan --file-type nd2 --data-path=\""+remote_path+"\" --file-list \""+remote_path+"/filelist.csv\" --config \""+remote_path+"/config.json\"";	
+	str  = "#!/bin/tcsh\n#SBATCH --job-name=sg-scan\n#SBATCH --time=01:00:00\nconda activate sganalysis\npython sganalysiswf.py scan --file-type nd2 --data-path=\""+remote_path+"\" --file-list \""+remote_path+"/filelist.csv\" --config \""+remote_path+"/config.json\"";
 	File.saveString(str,local_jobs_dir+File.separator+jobname);
 	ret = exec("ssh", username+"@"+hostname, "sbatch", "--chdir", remote_jobs_dir, jobname);
 	print(" " + ret);
 	print(" Job is now running in the background, use 'List Jobs' to check completion.");
-	print(" Next: edit channel orders in the config.json file.");	
+	print(" Next: edit channel orders in the config.json file.");
 }
 
 function scanlsm() {
@@ -82,12 +82,12 @@ function scanlsm() {
 	print(" - Remote path " + remote_path);
 	print(" - File list " + remote_path+"/filelist.csv");
 	jobname = "sga-scan.sh";
-	str  = "#!/bin/tcsh\n#SBATCH --job-name=sg-scan\n#SBATCH --time=01:00:00\nconda activate sganalysis\npython sganalysiswf.py scan --file-type lsm --data-path=\""+remote_path+"\" --file-list \""+remote_path+"/filelist.csv\" --config \""+remote_path+"/config.json\"";	
+	str  = "#!/bin/tcsh\n#SBATCH --job-name=sg-scan\n#SBATCH --time=01:00:00\nconda activate sganalysis\npython sganalysiswf.py scan --file-type lsm --data-path=\""+remote_path+"\" --file-list \""+remote_path+"/filelist.csv\" --config \""+remote_path+"/config.json\"";
 	File.saveString(str,local_jobs_dir+File.separator+jobname);
 	ret = exec("ssh", username+"@"+hostname, "sbatch", "--chdir", remote_jobs_dir, jobname);
 	print(" " + ret);
 	print(" Job is now running in the background, use 'List Jobs' to check completion.");
-	print(" Next: edit channel orders in the config.json file.");	
+	print(" Next: edit channel orders in the config.json file.");
 }
 
 function configSG() {
@@ -96,8 +96,8 @@ function configSG() {
 	Table.open(folder+"/filelist.csv");
 	nchannels = Table.get("channels", 1);
 	print("Images have "+nchannels+" channels");
-	run("Close");	
-	Dialog.create("Channel Configuration Tool");	
+	run("Close");
+	Dialog.create("Channel Configuration Tool");
 	choices = newArray("1","2","3","4");
 	choices = Array.trim(choices, nchannels);
 	channels = newArray("nuclei","membrane","granule","other");
@@ -135,17 +135,17 @@ function configSpread() {
 	Table.open(folder+"/filelist.csv");
 	nchannels = Table.get("channels", 1);
 	print("Images have "+nchannels+" channels");
-	run("Close");	
+	run("Close");
 	Dialog.create("Channel Configuration Tool");
-	
+
 	choices = newArray("1","2","3","4");
 	choices = Array.trim(choices, nchannels);
 	channels = newArray("nuclei","label1","label2","label3");
 	Dialog.addMessage("Indicate the labels in channel order\nwith least one nuclei");
-	for (i = 0; i < channels.length; i++) {		
+	for (i = 0; i < channels.length; i++) {
 		Dialog.addString("Channel "+(i+1), channels[i]);
 	}
-	Dialog.addNumber("scale [um]", 50);	
+	Dialog.addNumber("scale [um]", 50);
 	Dialog.addChoice("Mode", newArray("Cellpose","Cellpose & Watershed"));
 	Dialog.show();
 	str = "{\"Analysis\":\"Spread\", \"channels\":[";
@@ -191,32 +191,32 @@ function process() {
 	File.saveString(str,local_jobs_dir+File.separator+jobname);
 	Table.open(folder+File.separator+"filelist.csv");
 	n = Table.size;
-	print("Sending command to "+ hostname);	
+	print("Sending command to "+ hostname);
 	ret = exec("ssh", username+"@"+hostname, "sbatch", "--chdir", remote_jobs_dir,  "--array=0-"+(n-1), jobname);
 	print(ret);
-	jobid = parseInt(replace(ret,"Submitted batch job ",""));	
+	jobid = parseInt(replace(ret,"Submitted batch job ",""));
 	print("Job is running in the background, use 'List Jobs' to check completion.");
 	print(local_jobs_dir + File.separator + "slurm-" + jobid + "_1.out");
-	print("Next: create figures using the 'Figure' action.");	
+	print("Next: list running jobs and once finished make a figure.");
 }
 
 function figure() {
-	print("[ Preparing a figure ]");	
+	print("[ Preparing a figure ]");
 	jobname = "sga-fig.sh";
 	str  = "#!/bin/tcsh\n#SBATCH --job-name=sg-fig\n#SBATCH --time=01:00:00\nconda activate sganalysis\npython sganalysiswf.py figure --data-path=\""+remote_path+"\" --file-list \""+remote_path+"/filelist.csv\"";
 	File.saveString(str,local_jobs_dir+File.separator+jobname);
 	ret = exec("ssh", username+"@"+hostname, "sbatch", "--chdir", remote_jobs_dir, jobname);
 	print(ret);
-	jobid = parseInt(replace(ret,"Submitted batch job ",""));	
+	jobid = parseInt(replace(ret,"Submitted batch job ",""));
 	print("Job is running in the background, use 'List Jobs' to check completion.");
 	print(local_jobs_dir + File.separator + "slurm-" + jobid + ".out");
 	print("Once the job is completed, opne the files:");
 	print(local_share+"/results/cells.csv");
-	print(local_share+"/results/cells.pdf");	
+	print(local_share+"/results/cells.pdf");
 }
 
-function listjobs() {
-	print("[ List jobs ]");	
+function listJobs() {
+	print("[ List jobs ]");
 	if (isOpen("Results")) { selectWindow("Results"); run("Close"); }
 	ret = exec("ssh", username+"@"+hostname, "squeue -u "+username);
 	lines = split(ret,"\n");
@@ -236,8 +236,9 @@ function listjobs() {
 	}
 }
 
-function canceljobs() {
-	print("[ List jobs ]");	
+function cancelJobs() {
+	print("[ Cancel jobs ]");
+	
 	if (isOpen("Results")) { selectWindow("Results"); run("Close"); }
 	ret = exec("ssh", username+"@"+hostname, "squeue -u "+username);
 	lines = split(ret,"\n");
@@ -247,11 +248,14 @@ function canceljobs() {
 	str = "";
 	for (i = 1; i < lines.length; i++) {
 		elem = split(lines[i]," ");
-		str += elem[0] + " ";		
+		str += elem[0] + " ";
 	}
-	print("Cancelling jobs " + str);
-	ret = exec("ssh", username+"@"+hostname, "scancel " + str);
-	print(ret);
+	ok = getBoolean("Cancel all your jobs on the cluster?\n"+str);
+	if (ok) {
+		print("Cancelling jobs " + str);
+		ret = exec("ssh", username+"@"+hostname, "scancel " + str);
+		print(ret);
+	}
 }
 
 function convert_slash(src) {
@@ -269,9 +273,9 @@ function convert_slash(src) {
 	}
 }
 
-function parseCSVString(csv) {	
+function parseCSVString(csv) {
 	str = split(csv, ",");
-	for (i = 0; i < str.length; i++) { 
+	for (i = 0; i < str.length; i++) {
 		str[i] =  String.trim(str[i]);
 	}
 	return str;

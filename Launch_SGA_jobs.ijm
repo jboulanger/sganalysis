@@ -4,6 +4,7 @@
 #@String (label="Remote share",description="Remote mounting point of the network share", value="/cephfs/") remote_share
 #@File(label="Folder", value="", style="directory",description="Path to the data folder from this computer") folder
 #@String(label="Action",choices={"Install","Scan ND2","Scan LSM","Config SG","Config Spread","Process","Figure","List Jobs","Cancel Jobs"}) action
+#@Boolean(label="GPU queue",value=True) use_gpu_queue
 
 /*
  * Launch slurm jobs for stress granule analysis
@@ -180,8 +181,12 @@ function process() {
 	jobname = "sga-process.sh";
 	str  = "#!/bin/tcsh\n#SBATCH --job-name=sga-process\n";
 	str += "#SBATCH --time=05:00:00\n";
-	str += "#SBATCH --partition=gpu\n";
-	str += "#SBATCH --gres=gpu:1\n";
+	if (use_gpu_queue) {
+		str += "#SBATCH --partition=gpu\n";
+		str += "#SBATCH --gres=gpu:1\n";
+	} else {
+		str += "#SBATCH --partition=cpu\n";
+	}
 	str += "conda activate sganalysis\n";
 	str += "set I=`printf %06d $SLURM_ARRAY_TASK_ID`\n";
 	str += "python sganalysiswf.py process --data-path=\""+remote_path+"\" ";

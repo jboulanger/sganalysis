@@ -6,7 +6,7 @@ import numpy.ma as ma
 from nd2reader import ND2Reader
 import math
 from scipy import ndimage
-from scipy.ndimage import gaussian_filter
+from scipy.ndimage import gaussian_filter, white_tophat
 from scipy.stats import pearsonr, spearmanr
 from skimage.filters import difference_of_gaussians, laplace
 from skimage.measure import label, regionprops, find_contours
@@ -194,17 +194,14 @@ def segment_cells(img, pixel_size, scale, mode):
     from skimage.segmentation import watershed
     #model = models.Cellpose(gpu=True, model_type='cyto2')
     #mask, flows, styles, diams = model.eval(img, diameter=d, flow_threshold=None, channels=[0,1])
-
     if mode == 1:
         # segment the nuclei
         d = 0.33*1000*scale/pixel_size[-1]
         model = models.Cellpose(gpu=core.use_gpu(), model_type='nuclei')
         nlabels = model.eval(
-                img,
-                channel_axis = 0,
-                channels = [1,0],
+                img[1],
                 diameter = d,
-                flow_threshold = 0.4,
+                flow_threshold = None,
                 cellprob_threshold = 0.1, # default is 0
                 min_size = 100000 # filter out smaller cells
             )[0]
@@ -213,7 +210,7 @@ def segment_cells(img, pixel_size, scale, mode):
         dist = distance_transform_edt(nlabels > 0)
 
         # compute a mask for the watershed
-        mask = median_filter(np.amax(img,0), 11)
+        mask = gaussian_filter(np.amax(img,0), 15)
         mask = mask > mask[mask < np.quantile(mask, 0.1)].mean()
 
         # apply a watershed
@@ -308,7 +305,7 @@ def spatial_spread_roi(prop, image):
         S.append((sx,sy,sxx,sxy,syy))
     return S
 
-def spatial_spread_mask(mask, intensity, fraction=0.25):
+def spatial_spread_mask(mask, intensity):
     """Spread as the trace of the moment matrix
 
     Parameter
@@ -320,80 +317,53 @@ def spatial_spread_mask(mask, intensity, fraction=0.25):
     ------
     moments sx,sy,sxx,sxy,syy
     """
-
     x,y = np.meshgrid(np.arange(mask.shape[1]), np.arange(mask.shape[0]))
-
-    #masking = mask
-    #w = intensity - intensity.min()) * masking
-    #w = ma.array(intensity, mask = np.logical_not(masking))
-    #x = ma.array(x, mask = np.logical_not(masking))
-    #y = ma.array(y, mask = np.logical_not(masking))
-    #w = intensity
-    intensity=intensity-intensity.min()
-    w = intensity
-    if (w.max() - w.min()) > 0.1:
-        w = (w - w.min()) / (w.max() - w.min())
-        w  = w * (w > 0.5) * mask
-    else:
-        w = mask
-
-
+    w = ma.array(intensity - intensity.min(), mask = np.logical_not(mask))
+    x = ma.array(x, mask = np.logical_not(mask))
+    y = ma.array(y, mask = np.logical_not(mask))
     sw = np.sum(w)
     if sw < 1e-9:
         return 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
-
     sx = np.sum(w * x) / sw
     sy = np.sum(w * y) / sw
     sxx = np.sum(w * np.square(x-sx)) / sw
     sxy = np.sum(w * (x-sx) * (y-sy)) / sw
     syy = np.sum(w * np.square(y-sy)) / sw
+    return sx,sy,sxx,sxy,syy
 
-    # compute distance ditribution
-    d = np.sqrt(np.square(x - sx) + np.square(y - sy))
-    nbins = 100
-    h = np.zeros(nbins)
-    r = np.linspace(0, d.max(), nbins+1)
-    for k in range(nbins):
-        select = np.logical_and(d > r[k], d <= r[k+1], dtype=float)
-        select = np.logical_and(select, mask, dtype=float)
-        select_sum = select.sum()
-        if select_sum > 0:
-            h[k] = (select * intensity).sum() / select.sum()
-        else:
-            select_sum = 0
+def characteristic_radius(mask, intensity, fraction):
+    """radius corresponding to a fraction of the total intensity
 
-    # find the radius where cumsum(h) == 0.5
-    h = h / h.sum()
-    F = np.cumsum(h)
-    #F = F / F[-1]
-    r0 = np.interp(fraction, F, r[:-1])
-    k0 = np.argwhere(F<fraction)[-1]
+    Issue: the center is not well defined..
+    """
+    x0 = np.arange(mask.shape[1])
+    y0 = np.arange(mask.shape[0])
+    x,y = np.meshgrid(x0,y0)
+    w = ma.array(intensity-intensity.min(), mask = np.logical_not(mask))
+    x = ma.array(x, mask = np.logical_not(mask))
+    y = ma.array(y, mask = np.logical_not(mask))
+    sw = np.sum(w)
+    #Fx = np.array([(w * (x < v)).sum() / sw for v in x0])
+    #sx1 = np.interp(0.5, Fx, x0)
+    #Fy = np.array([(w * (y < v)).sum() / sw for v in y0])
+    #sy1 = np.interp(0.5, Fy, y0)
+    ret = np.unravel_index(np.argmax(w), w.shape)
+    sx1 = ret[1]
+    sy1 = ret[0]
+    d = np.sqrt(np.square(x - sx1) + np.square(y - sy1))
+    r = np.linspace(0, d.max(), 100)
+    F = np.array([(w * (d < v)).sum() / sw for v in r])
+    r0 = np.interp(fraction, F, r)
+    return r0
 
-    # plt.figure()
-    # plt.subplot(141)
-    # plt.imshow(mask)
-    # select = np.logical_and(d > r[k0], d < r[k0+1], dtype=float)
-    # select = np.logical_and(select, mask, dtype=float)
-    # plt.imshow(intensity*select)
-    # plt.axis('off')
-
-    # plt.subplot(142)
-    # plt.imshow(w)
-    # plt.axis('off')
-
-    # plt.subplot(143)
-    # plt.imshow(intensity)
-    # plt.plot(sx,sy,'w+')
-    # plt.axis('off')
-
-
-    # plt.subplot(144)
-    # plt.plot(r[:-1], F)
-    # plt.plot([r0,r0], [0,1], 'r-')
-    # plt.gca().set_box_aspect(1)
-
-    return sx,sy,sxx,sxy,syy,r0
-
+def fraction_in_spot(mask, intensity):
+    """Fraction of the intensity in spot like structures"""
+    score = gaussian_filter(intensity,2) - gaussian_filter(intensity,10)
+    m = np.median(score)
+    s = 1.48*np.median(np.abs(score-m))
+    score = score > (m + 3 * s)
+    score = score * mask
+    return (intensity*score).sum() / (intensity*mask).sum()
 
 def does_not_touch_image_border(roi,img):
     """Return true if the roi does not touch the image border defined by the shape [nc,ny,nx]"""
@@ -412,8 +382,8 @@ def draw_spread(stats, channel, color, bbox = [0,0,1,1]):
 
     X = stats[f'Centroid X {channel}'] - bbox[1]
     Y = stats[f'Centroid Y {channel}'] - bbox[0]
-    S = stats[f'Radius P {channel}']
-    #S = stats[f'Spread {channel}']
+    S = stats[f'Spread {channel}']
+    #S = stats[f'Radius P {channel}']
 
     try : #  X,Y,S are iterable
         for x,y,s in zip(X, Y, S):
@@ -661,13 +631,9 @@ def measure_roi_spread(roi, img, masks, distances):
     Parameters
     ----------
     roi : roi from regionprops
-    img : dictionnary of images with keys cells,nuclei,granule,other
-    masks :  dictionnary of images with keys nucleus,cell,particle,cytosol,other
-    distances : dictionnary of distances map with keys nuclei,membrane
-
-    Note
-    ----
-    masks['particle'] and masks['other'] are labels while the others are binary
+    img : dictionnary of images with keys cells,...
+    masks :  dictionnary of images with keys nucleus, cell,...
+    distances : dictionnary of distances map with keys nuclei,membrane,fraction
     """
 
     nuclei = regionprops(masks['nucleus'])
@@ -688,11 +654,14 @@ def measure_roi_spread(roi, img, masks, distances):
         stats[f'Total intensity in {c}'] = sum_mask_x_img
         stats[f'Mean intensity in {c}'] = sum_mask_x_img / sum_mask if sum_mask > 0 else 0
         tmp = gaussian_filter(img[c], 5)
+        tmp = tmp - tmp.min()
+        tmp = tmp * (tmp > (tmp.mean()+2*tmp.std()))
         sc = spatial_spread_mask(masks['cell'], tmp)
         stats['Centroid X of '+ c] = roi.bbox[1] + sc[0]
         stats['Centroid Y of '+ c] = roi.bbox[0] + sc[1]
         stats['Spread of '+ c] = np.sqrt(sc[2]+sc[4])
-        stats['Radius P of '+ c] = sc[5]
+        stats['Radius 0.1 of '+ c] = characteristic_radius(masks['cell'], img[c], 0.1)
+        stats['Spot fraction of '+ c] = fraction_in_spot(masks['cell'], img[c])
     return stats
 
 def load_config(path):

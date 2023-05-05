@@ -216,8 +216,8 @@ function figure() {
 	print("Job is running in the background, use 'List Jobs' to check completion.");
 	print(local_jobs_dir + File.separator + "slurm-" + jobid + ".out");
 	print("Once the job is completed, opne the files:");
-	print(local_share+"/results/cells.csv");
-	print(local_share+"/results/cells.pdf");
+	print(folder+"/results/cells.csv");
+	print(folder+"/results/cells.pdf");
 }
 
 function listJobs() {

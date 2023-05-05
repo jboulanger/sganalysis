@@ -358,10 +358,10 @@ def characteristic_radius(mask, intensity, fraction):
 
 def fraction_in_spot(mask, intensity):
     """Fraction of the intensity in spot like structures"""
-    score = gaussian_filter(intensity,2) - gaussian_filter(intensity,10)
+    score = gaussian_filter(intensity.astype(float), 2) - gaussian_filter(intensity.astype(float), 6)
     m = np.median(score)
-    s = 1.48*np.median(np.abs(score-m))
-    score = score > (m + 3 * s)
+    s = 1.48*np.median(np.abs(score - m))
+    score = score > (m + 6 * s)
     score = score * mask
     return (intensity*score).sum() / (intensity*mask).sum()
 
@@ -369,7 +369,6 @@ def does_not_touch_image_border(roi,img):
     """Return true if the roi does not touch the image border defined by the shape [nc,ny,nx]"""
     shape = img['nuclei'].shape
     return np.all(roi.coords > 0) and np.all(roi.coords[:,0] < shape[0]-1) and np.all(roi.coords[:,1] < shape[1]-1)
-
 
 def strech_range(x):
     """Stretch the range of the array between 0 and 1 for display"""
@@ -609,7 +608,6 @@ def measure_roi_stats(roi, img, masks, distances):
     m1, m2 =  manders_coefficients(masks['particle'], masks['other'], img['granule'], img['other'])
     stats['Colocalization manders m1 granule:other'] = m1
     stats['Colocalization manders m2 granule:other'] = m2
-
     stats['Number of particles'] = len(particles)
     stats['Particle area'] = np.sum(np.array([x.area for x in particles])) if len(particles) > 0 else 0
     stats['Particle area fraction'] = np.sum(np.array([x.area for x in particles])) / roi.area if len(particles) > 0 else 0
@@ -653,9 +651,12 @@ def measure_roi_spread(roi, img, masks, distances):
         sum_mask_x_img = ((masks['cell'] > 0).astype(float) * (img[c].astype(float))).sum()
         stats[f'Total intensity in {c}'] = sum_mask_x_img
         stats[f'Mean intensity in {c}'] = sum_mask_x_img / sum_mask if sum_mask > 0 else 0
-        tmp = gaussian_filter(img[c], 5)
-        tmp = tmp - tmp.min()
-        tmp = tmp * (tmp > (tmp.mean()+2*tmp.std()))
+        tmp = (img[c] * masks['cell']).astype(float)
+        tmp = gaussian_filter(tmp, 5)
+        #tmp = white_tophat(tmp, 10)
+        tmp = np.maximum(tmp - np.median(tmp) - tmp.std(), 0)
+        #plt.figure()
+        #plt.imshow(tmp)
         sc = spatial_spread_mask(masks['cell'], tmp)
         stats['Centroid X of '+ c] = roi.bbox[1] + sc[0]
         stats['Centroid Y of '+ c] = roi.bbox[0] + sc[1]
@@ -964,7 +965,7 @@ def make_figure(args):
     columns = [x for x in cells.columns if x not in exclude]
 
     # make a boxplot for each selected column
-    facet_plot(cells, columns, 4)
+    facet_plot(cells, columns, 7)
     figname = os.path.join(args.data_path, 'results', 'cells.pdf')
     print(f'Saving figure to file {figname}')
     plt.savefig(figname)

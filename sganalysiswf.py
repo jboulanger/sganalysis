@@ -41,10 +41,14 @@ def load_nd2(filename, fov=0):
 
 def load_lsm(filename, fov):
     with tifffile.TiffFile(filename) as tif:
-        data = tif.asarray()[fov]
+        data = tif.asarray()
         md = tif.lsm_metadata
         pixel_size = [md['VoxelSizeZ']*1e9, md['VoxelSizeY']*1e9, md['VoxelSizeX']*1e9]
-    return data, pixel_size
+        if md['DimensionP'] == 1:
+            return data, pixel_size
+        else:
+            return data[fov], pixel_size
+
 
 def load_image(filename, fov):
     path = Path(filename)
@@ -216,8 +220,11 @@ def segment_cells(img, pixel_size, scale, mode):
         # apply a watershed
         clabels = watershed(-dist, nlabels, mask=mask)
     else :
-        d = 1000 * scale/pixel_size[-1]
+        d = round(1000 * scale/pixel_size[-1])
+        print(f'    Cell size {d}')
+        print(f'    Image shape {img.shape}')
         model = models.Cellpose(gpu=core.use_gpu(), model_type='cyto2')
+
         clabels = model.eval(
                 img,
                 channel_axis = 0,
@@ -253,11 +260,14 @@ def segment_image(img, pixel_size, config):
     scale = config['scale_um']
     mode = config['mode']
     if config['Analysis'] == 'SG':
+        for k in img.keys():
+            print(img[k].shape)
         tmp = img['membrane']+img['granule']+img['other']
         #tmp = ndimage.minimum_filter(ndimage.median_filter(tmp,5),11)
         tmp = gaussian_filter(tmp, 20)
+        print(f'   image shape {tmp.shape}')
         labels = {
-            "cells"   : segment_cells(np.stack([tmp, img['nuclei']]),pixel_size,scale,mode),
+            "cells"   : segment_cells(np.stack([tmp, img['nuclei']],axis=0),pixel_size,scale,mode),
             "nuclei"  : segment_nuclei(img["nuclei"],pixel_size,scale),
             "granule" : segment_granules(img["granule"]),
             "other"   : segment_granules(img["other"])
@@ -670,9 +680,9 @@ def load_config(path):
 def config2img(img, config):
     dst = dict()
     for c in config:
+
         dst[c['name']] = img[c['index']]
     return dst
-
 
 def process_fov(filename, position, config):
     """Process the field of view
@@ -690,8 +700,11 @@ def process_fov(filename, position, config):
     labels: segmentation labels
     rois: regionprops
     """
+    print("Processing [SG]")
 
     data, pixel_size = load_image(filename, position)
+
+    print(f'  pixel size {pixel_size}')
 
     #data = deconvolve_all_channels(data,pixel_size,config)
 
@@ -737,7 +750,9 @@ def process_fov_spread(filename, position, config):
     ------
     stats, mip, labels, rois
     """
-    print('process fov spread')
+
+    print('Processing [Spread]')
+
     data, pixel_size = load_image(filename, position)
 
     mip = config2img( projection(data), config['channels'])

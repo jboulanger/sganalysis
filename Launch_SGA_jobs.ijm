@@ -3,7 +3,7 @@
 #@File (label="Local share",description="Local mounting point of the network share", style="directory") local_share
 #@String (label="Remote share",description="Remote mounting point of the network share", value="/cephfs/") remote_share
 #@File(label="Folder", value="", style="directory",description="Path to the data folder from this computer") folder
-#@String(label="Action",choices={"Install","Scan ND2","Scan LSM","Config SG","Config Spread","Process","Figure","List Jobs","Cancel Jobs"}) action
+#@String(label="Action",choices={"Install","Scan ND2","Scan LSM","Config SG","Config Spread","Process","Figure","List Jobs","Cancel Jobs","Open first image"}) action
 #@Boolean(label="GPU queue",value=True) use_gpu_queue
 
 /*
@@ -52,6 +52,11 @@ if (matches(action, "Scan ND2")) {
 	listJobs();
 } else if (matches(action, "Cancel Jobs")) {
 	cancelJobs();
+} else if (matches(action, "Open first image")) {
+	Table.open(folder+File.separator+"filelist.csv");
+	fname = Table.getString("filename", 0);	
+	print("Opening image" + fname);
+	open(folder + File.separator + fname);
 }
 
 function install() {
@@ -184,6 +189,7 @@ function process() {
 	if (use_gpu_queue) {
 		str += "#SBATCH --partition=gpu\n";
 		str += "#SBATCH --gres=gpu:1\n";
+		str += "#SBATCH -c 12\n";
 	} else {
 		str += "#SBATCH --partition=cpu\n";
 		str += "#SBATCH -c 32\n";

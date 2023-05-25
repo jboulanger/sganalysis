@@ -223,8 +223,6 @@ def segment_cells(img, pixel_size, scale, mode):
                 channel_axis = 0,
                 channels = [0,1],
                 diameter = d,
-                flow_threshold = 0.4,
-                cellprob_threshold = 0.1, # default is 0
                 min_size = 100000 # filter out smaller cells
             )[0]
 
@@ -256,7 +254,8 @@ def segment_image(img, pixel_size, config):
     mode = config['mode']
     if config['Analysis'] == 'SG':
         tmp = img['membrane']+img['granule']+img['other']
-        tmp = ndimage.minimum_filter(ndimage.median_filter(tmp,5),11)
+        #tmp = ndimage.minimum_filter(ndimage.median_filter(tmp,5),11)
+        tmp = gaussian_filter(tmp, 20)
         labels = {
             "cells"   : segment_cells(np.stack([tmp, img['nuclei']]),pixel_size,scale,mode),
             "nuclei"  : segment_nuclei(img["nuclei"],pixel_size,scale),

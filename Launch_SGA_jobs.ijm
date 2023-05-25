@@ -186,6 +186,7 @@ function process() {
 		str += "#SBATCH --gres=gpu:1\n";
 	} else {
 		str += "#SBATCH --partition=cpu\n";
+		str += "#SBATCH -c 32\n";
 	}
 	str += "conda activate sganalysis\n";
 	str += "set I=`printf %06d $SLURM_ARRAY_TASK_ID`\n";

@@ -49,7 +49,6 @@ def load_lsm(filename, fov):
         else:
             return data[fov], pixel_size
 
-
 def load_image(filename, fov):
     path = Path(filename)
     if path.suffix == '.nd2':

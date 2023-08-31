@@ -445,8 +445,8 @@ def show_image(img, labels, rois, stats):
             print('failed to show nuclei')
 
     if 'granule' in img.keys():
-        draw_spread(stats,f'in cells of '+ c + ' channel', 'red')
-        draw_spread(stats,'granule', 'green')
+        draw_spread(stats, f'in cells of granule channel', 'red')
+        draw_spread(stats, 'granule', 'green')
     else:
         color = ['red','green','blue','white']
         n = 0

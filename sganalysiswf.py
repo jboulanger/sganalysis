@@ -443,16 +443,18 @@ def show_image(img, labels, rois, stats):
                 plt.plot(c[0][:,1],c[0][:,0],'w',alpha=0.5)
         except:
             print('failed to show nuclei')
-
-    if 'granule' in img.keys():
-        pass
-    else:
-        color = ['red','green','blue','white']
-        n = 0
-        for c in img.keys():
-            if c != 'nuclei':
-                draw_spread(stats, f'of {c}', color[n])
-                n = n + 1
+    try:
+        if 'granule' in img.keys():
+            pass
+        else:
+            color = ['red','green','blue','white']
+            n = 0
+            for c in img.keys():
+                if c != 'nuclei':
+                    draw_spread(stats, f'of {c}', color[n])
+                    n = n + 1
+    except :
+        print("failed to draw spread")
 
     plt.axis('off')
 

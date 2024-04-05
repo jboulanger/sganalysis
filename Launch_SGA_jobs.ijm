@@ -104,9 +104,10 @@ function configSG() {
 	print("Images have "+nchannels+" channels");
 	run("Close");
 	Dialog.create("Channel Configuration Tool");
-	choices = newArray("1","2","3","4");
+	choices = newArray("1","2","3","4","5");
 	choices = Array.trim(choices, nchannels);
-	channels = newArray("nuclei","membrane","granule","other");
+	channels = newArray("nuclei","membrane","granule","other","other other");
+	channels = Array.trim(channels, nchannels);
 	for (i = 0; i < channels.length; i++) {
 		Dialog.addRadioButtonGroup(channels[i], choices, 1, nchannels, "1");
 	}
@@ -144,9 +145,10 @@ function configSpread() {
 	run("Close");
 	Dialog.create("Channel Configuration Tool");
 
-	choices = newArray("1","2","3","4");
+	choices = newArray("1","2","3","4","5");
 	choices = Array.trim(choices, nchannels);
-	channels = newArray("nuclei","label1","label2","label3");
+	channels = newArray("nuclei","label1","label2","label3","label4");
+	channels = Array.trim(channels, nchannels);
 	Dialog.addMessage("Indicate the labels in channel order\nwith least one nuclei");
 	for (i = 0; i < channels.length; i++) {
 		Dialog.addString("Channel "+(i+1), channels[i]);

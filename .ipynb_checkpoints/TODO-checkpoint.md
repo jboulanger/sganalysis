@@ -1,1 +1,0 @@
-[ ] adapt the macro to the two modes

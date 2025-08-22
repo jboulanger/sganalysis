@@ -3,6 +3,7 @@
 #@File (label="Local share",description="Local mounting point of the network share", style="directory") local_share
 #@String (label="Remote share",description="Remote mounting point of the network share", value="/cephfs/") remote_share
 #@File(label="Folder", value="", style="directory",description="Path to the data folder from this computer") folder
+#@String(label="Python", value="", choices={"conda","micromamba","Jerome"}, description="Type of python installation") python
 #@String(label="Action",choices={"Install","Scan ND2","Scan LSM","Config SG","Config Spread","Process","Figure","List Jobs","Cancel Jobs","Open first image"}) action
 #@Boolean(label="GPU queue",value=True) use_gpu_queue
 
@@ -15,7 +16,7 @@
  * 3. Process the file list, open the table and create jobs for each file to run on the cluster
  * 4. Make a figure with all the individual results.
  *
- * Jerome Boulanger 2021-22
+ * Jerome Boulanger 2021-25
  */
 
 print("\n\n__________SGA______________");
@@ -24,7 +25,16 @@ remote_path = replace(convert_slash(folder), convert_slash(local_share), remote_
 remote_jobs_dir = remote_share + "/jobs";
 local_jobs_dir = local_share + File.separator + "jobs";
 script_url = "https://raw.githubusercontent.com/jboulanger/sganalysis/master/sganalysiswf.py";
+env_url = "https://raw.githubusercontent.com/jboulanger/sganalysis/master/environment.yml";
 script_name = "sganalysiswf.py";
+if (python == "conda") {
+	cmd = "conda run -n sganalysis " + script_name  + " ";
+} else if (python == "micromamba"){
+	cmd = "~/.local/bin/micromamba run -n sganalysis "  + script_name  + " ";
+} else {
+	cmd = "/lmb/home/jeromeb/.local/bin/micromamba run -n sganalysis " + script_name  + " ";
+}
+
 
 // create a job folder if needed
 if (File.exists(local_jobs_dir) != 1) {
@@ -60,7 +70,7 @@ if (matches(action, "Scan ND2")) {
 }
 
 function install() {
-	print("[ Installing script ]");
+	print("[ Installing script in your job folder ]");
 	print("Downloading the python script and save it in the job folder");
 	str = File.openUrlAsString(script_url);
 	dst = local_jobs_dir + File.separator + "sganalysiswf.py";
@@ -74,11 +84,13 @@ function scannd2() {
 	print(" - Remote path " + remote_path);
 	print(" - File list " + remote_path+"/filelist.csv");
 	jobname = "sga-scan.sh";
-	str  = "#!/bin/tcsh\n#SBATCH --job-name=sg-scan\n#SBATCH --time=01:00:00\nconda activate sganalysis\npython sganalysiswf.py scan --file-type nd2 --data-path=\""+remote_path+"\" --file-list \""+remote_path+"/filelist.csv\" --config \""+remote_path+"/config.json\"";
+	str  = "#!/bin/tcsh\n#SBATCH --job-name=sg-scan\n";
+	str  = "#SBATCH --time=01:00:00\n";
+	str += cmd + "scan --file-type nd2 --data-path=\""+remote_path+"\" --file-list \""+remote_path+"/filelist.csv\" --config \""+remote_path+"/config.json\"";
 	File.saveString(str,local_jobs_dir+File.separator+jobname);
 	ret = exec("ssh", username+"@"+hostname, "sbatch", "--chdir", remote_jobs_dir, jobname);
 	print(" " + ret);
-	print(" Job is now running in the background, use 'List Jobs' to check completion.");
+	print(" Jobs are now running in the background, use 'List Jobs' to check completion.");
 	print(" Next: edit channel orders in the config.json file.");
 }
 
@@ -88,11 +100,11 @@ function scanlsm() {
 	print(" - Remote path " + remote_path);
 	print(" - File list " + remote_path+"/filelist.csv");
 	jobname = "sga-scan.sh";
-	str  = "#!/bin/tcsh\n#SBATCH --job-name=sg-scan\n#SBATCH --time=01:00:00\nconda activate sganalysis\npython sganalysiswf.py scan --file-type lsm --data-path=\""+remote_path+"\" --file-list \""+remote_path+"/filelist.csv\" --config \""+remote_path+"/config.json\"";
+	str  = "#!/bin/tcsh\n#SBATCH --job-name=sg-scan\n#SBATCH --time=01:00:00\n"+cmd+"scan --file-type lsm --data-path=\""+remote_path+"\" --file-list \""+remote_path+"/filelist.csv\" --config \""+remote_path+"/config.json\"";
 	File.saveString(str,local_jobs_dir+File.separator+jobname);
 	ret = exec("ssh", username+"@"+hostname, "sbatch", "--chdir", remote_jobs_dir, jobname);
 	print(" " + ret);
-	print(" Job is now running in the background, use 'List Jobs' to check completion.");
+	print(" Job are now running in the background, use 'List Jobs' to check completion.");
 	print(" Next: edit channel orders in the config.json file.");
 }
 
@@ -196,9 +208,8 @@ function process() {
 		str += "#SBATCH --partition=cpu\n";
 		str += "#SBATCH -c 32\n";
 	}
-	str += "conda activate sganalysis\n";
 	str += "set I=`printf %06d $SLURM_ARRAY_TASK_ID`\n";
-	str += "python sganalysiswf.py process --data-path=\""+remote_path+"\" ";
+	str += cmd +"process --data-path=\""+remote_path+"\" ";
 	str += "--file-list \""+remote_path+"/filelist.csv\" --index $I ";
 	str += "--output-by-cells \""+remote_path+"\"/results/cells$I.csv ";
 	str += "--output-vignette \""+remote_path+"\"/results/vignettes$I.png";
@@ -217,7 +228,7 @@ function process() {
 function figure() {
 	print("[ Preparing a figure ]");
 	jobname = "sga-fig.sh";
-	str  = "#!/bin/tcsh\n#SBATCH --job-name=sg-fig\n#SBATCH --time=01:00:00\nconda activate sganalysis\npython sganalysiswf.py figure --data-path=\""+remote_path+"\" --file-list \""+remote_path+"/filelist.csv\"";
+	str  = "#!/bin/tcsh\n#SBATCH --job-name=sg-fig\n#SBATCH --time=01:00:00\n"+cmd+"figure --data-path=\""+remote_path+"\" --file-list \""+remote_path+"/filelist.csv\"";
 	File.saveString(str,local_jobs_dir+File.separator+jobname);
 	ret = exec("ssh", username+"@"+hostname, "sbatch", "--chdir", remote_jobs_dir, jobname);
 	print(ret);

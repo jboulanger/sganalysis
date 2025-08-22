@@ -1,4 +1,33 @@
-"""Stress Granule Analysis in wide field imaging"""
+"""
+Stress Granule Analysis in Wide Field Imaging
+=============================================
+
+This module provides tools for the analysis of stress granules in wide field microscopy images.
+It supports ND2 and LSM file formats, segmentation of cells, nuclei, and granules, and extraction
+of quantitative features for downstream analysis.
+
+Main Features
+-------------
+- Loading and parsing multi-channel, multi-position microscopy images.
+- Deconvolution using Richardson-Lucy algorithms.
+- Segmentation of cells, nuclei, and granules using Cellpose and watershed.
+- Extraction of region properties and statistics.
+- Visualization and plotting utilities.
+- Batch processing and result aggregation.
+
+Example
+-------
+>>> python sganalysiswf.py scan --data-path ./images --file-type nd2 --file-list files.csv --config config.json
+>>> python sganalysiswf.py process --data-path ./images --file-list files.csv --index 0 --config config.json --output-by-cells results.csv --output-vignette vignette.png
+>>> python sganalysiswf.py figure --data-path ./images --file-list files.csv
+
+References
+----------
+- Cellpose: https://www.cellpose.org/
+- NumPy: https://numpy.org/
+- Scikit-image: https://scikit-image.org/
+- SciPy: https://scipy.org/
+"""
 
 import argparse
 import matplotlib.pyplot as plt
@@ -7,7 +36,7 @@ import numpy.ma as ma
 from nd2reader import ND2Reader
 import math
 from scipy import ndimage
-from scipy.ndimage import gaussian_filter, white_tophat
+from scipy.ndimage import gaussian_filter
 from scipy.stats import pearsonr, spearmanr
 from skimage.filters import difference_of_gaussians, laplace
 from skimage.measure import label, regionprops, find_contours
@@ -17,7 +46,7 @@ from cellpose import core
 import edt
 import pandas as pd
 from pathlib import Path
-import glob, os
+import os
 import json
 
 # import nd2 # did not work on the cluster
@@ -26,13 +55,42 @@ import tifffile
 
 
 def get_nd2_number_of_positions(filename):
+    """
+    Get the number of positions (fields of view) in an ND2 file.
+
+    Parameters
+    ----------
+    filename : str
+        Path to the ND2 file.
+
+    Returns
+    -------
+    n : int
+        Number of positions in the2 file.
+    """
     with ND2Reader(filename) as images:
         n = images.sizes["v"]
     return n
 
 
 def load_nd2(filename, fov=0):
-    """Load all z planes and channels images from a multi-position file"""
+    """
+    Load all z planes and channels images from a multi-position ND2 file.
+
+    Parameters
+    ----------
+    filename : str
+        Path to the ND2 file.
+    fov : int, optional
+        Field of view index to load (default is 0).
+
+    Returns
+    -------
+    data : ndarray
+        Image data of shape (z, c, y, x).
+    pixel_size : list of float
+        Pixel size in [z, y, x] (nanometers).
+    """
     planes = []
     with ND2Reader(filename) as images:
         md = images.metadata
@@ -49,6 +107,23 @@ def load_nd2(filename, fov=0):
 
 
 def load_lsm(filename, fov):
+    """
+    Load image data from an LSM file.
+
+    Parameters
+    ----------
+    filename : str
+        Path to the LSM file.
+    fov : int
+        Field of view index to load.
+
+    Returns
+    -------
+    data : ndarray
+        Image data.
+    pixel_size : list of float
+        Pixel size in [z, y, x] (nanometers).
+    """
     with tifffile.TiffFile(filename) as tif:
         data = tif.asarray()
         md = tif.lsm_metadata
@@ -64,6 +139,23 @@ def load_lsm(filename, fov):
 
 
 def load_image(filename, fov):
+    """
+    Load image data from ND2 or LSM file depending on file extension.
+
+    Parameters
+    ----------
+    filename : str
+        Path to the image file.
+    fov : int
+        Field of view index.
+
+    Returns
+    -------
+    data : ndarray
+        Image data.
+    pixel_size : list of float
+        Pixel size in [z, y, x] (nanometers).
+    """
     path = Path(filename)
     if path.suffix == ".nd2":
         return load_nd2(filename, fov)
@@ -74,20 +166,28 @@ def load_image(filename, fov):
 def generate_otf3d(
     shape, pixel_size, wavelength, numerical_aperture, medium_refractive_index
 ):
-    """Generate a diffraction limited wide field optical transfer function and point spread function
+    """
+    Generate a diffraction limited wide field optical transfer function and point spread function.
 
     Parameters
     ----------
-    shape : list [nz,ny,nx] giving the shape of the final array
-    pixel_size : sampling in [z,y,x]
-    wavelength : wavelength of the emitted light
-    numerical_aperture : numerical aperture
-    medium_refractive_index : refractive index of the immersion medium
+    shape : list of int
+        [nz, ny, nx] giving the shape of the final array.
+    pixel_size : list of float
+        Sampling in [z, y, x].
+    wavelength : float
+        Wavelength of the emitted light.
+    numerical_aperture : float
+        Numerical aperture.
+    medium_refractive_index : float
+        Refractive index of the immersion medium.
 
     Returns
-    --------
-    otf : the optical transfer function as an array of shape 'shape'
-    psf : the point spread function as an array of shape 'shape' centerd in 0,0,0
+    -------
+    otf : ndarray
+        The optical transfer function as an array of shape 'shape'.
+    psf : ndarray
+        The point spread function as an array of shape 'shape' centered in 0,0,0.
     """
     kx = np.reshape(np.fft.fftfreq(shape[2], pixel_size[2]), [1, 1, shape[2]])
     ky = np.reshape(np.fft.fftfreq(shape[1], pixel_size[1]), [1, shape[1], 1])
@@ -98,6 +198,7 @@ def generate_otf3d(
     )
     d2 = np.square(kx) + np.square(ky)
     rho = np.sqrt(d2) * (wavelength / numerical_aperture)
+    # conservation of energy
     corr = np.power(
         np.maximum(1 - d2 / (medium_refractive_index / wavelength) ** 2, 1e-3), -0.25
     )
@@ -114,19 +215,24 @@ def generate_otf3d(
 
 
 def deconvolve_richardson_lucy(data, otf, background=0, iterations=100):
-    """Deconvolve data according to the given otf using a Richardson-Lucy algorithm
+    """
+    Deconvolve data according to the given OTF using a Richardson-Lucy algorithm.
 
     Parameters
     ----------
-    data       : numpy array
-    otf        : numpy array of the same size than data
-    background : background level
-    iterations : number of iterations
+    data : ndarray
+        Input image data.
+    otf : ndarray
+        Optical transfer function of the same size as data.
+    background : float, optional
+        Background level (default is 0).
+    iterations : int, optional
+        Number of iterations (default is 100).
 
-    Result
-    ------
-    estimate   : estimated image
-    dkl        : Kullback Leibler divergence
+    Returns
+    -------
+    estimate : ndarray
+        Estimated image.
     """
     estimate = np.clip(
         np.real(np.fft.ifftn(otf * np.fft.fftn(data - background))), 1e-6, None
@@ -141,22 +247,30 @@ def deconvolve_richardson_lucy(data, otf, background=0, iterations=100):
 
 
 def deconvolve_richardson_lucy_heavy_ball(data, otf, background, iterations):
-    """Deconvolve data according to the given otf using a scaled heavy ball Richardson-Lucy algorithm
+    """
+    Deconvolve data according to the given OTF using a scaled heavy ball Richardson-Lucy algorithm.
 
     Parameters
     ----------
-    data       : numpy array
-    otf        : numpy array of the same size than data
-    iterations : number of iterations
+    data : ndarray
+        Input image data.
+    otf : ndarray
+        Optical transfer function of the same size as data.
+    background : float
+        Background level.
+    iterations : int
+        Number of iterations.
 
-    Result
-    ------
-    estimate   : estimated image
-    dkl        : the kullback leibler divergence (should tend to 1/2)
+    Returns
+    -------
+    estimate : ndarray
+        Estimated image.
+    dkl : ndarray
+        Kullback-Leibler divergence per iteration.
 
-    Note
-    ----
-    https://doi.org/10.1109/tip.2013.2291324
+    Notes
+    -----
+    See: https://doi.org/10.1109/tip.2013.2291324
     """
     old_estimate = np.clip(
         np.real(np.fft.ifftn(otf * np.fft.fftn(data - background))), a_min=0, a_max=None
@@ -182,6 +296,14 @@ def deconvolve_richardson_lucy_heavy_ball(data, otf, background, iterations):
 
 
 def correct_hotpixels_inplace(data):
+    """
+    Correct hot pixels in the image data in-place using a median filter.
+
+    Parameters
+    ----------
+    data : ndarray
+        Image data to be corrected.
+    """
     baseline = ndimage.median_filter(data, size=3)
     delta = data - baseline
     thres = delta.mean() + delta.std()
@@ -190,6 +312,23 @@ def correct_hotpixels_inplace(data):
 
 
 def deconvolve_all_channels(data, pixel_size, config):
+    """
+    Deconvolve all channels in the image data.
+
+    Parameters
+    ----------
+    data : ndarray
+        Image data of shape (z, c, y, x).
+    pixel_size : list of float
+        Pixel size in [z, y, x] (nanometers).
+    config : dict
+        Configuration dictionary with channel wavelengths, NA, and medium refractive index.
+
+    Returns
+    -------
+    dec : ndarray
+        Deconvolved image data.
+    """
     print("Deconvolve all channels")
     wavelengths = [c["wavelength"] for c in config["channels"]]
     NA = config["NA"]
@@ -213,6 +352,19 @@ def deconvolve_all_channels(data, pixel_size, config):
 
 
 def projection(data):
+    """
+    Compute maximum intensity projection for each channel.
+
+    Parameters
+    ----------
+    data : ndarray
+        Image data of shape (z, c, y, x) or (c, y, x).
+
+    Returns
+    -------
+    mip : ndarray
+        Projected image data of shape (c, y, x).
+    """
     if len(data.shape) == 4:
         mip = []
         for k in range(data.shape[1]):
@@ -226,47 +378,44 @@ def projection(data):
 
 
 def segment_cells(img, pixel_size, scale, mode):
-    """Segment the cells in the image either using cellpose or cellpose and
-    watershed
+    """
+    Segment the cells in the image using Cellpose or Cellpose + watershed.
 
     Parameters
     ----------
-    img : image (C,H,W) with the membrane [idx 0] and nuclei channels [idx 1]
-    pixel_size : pixel size as an iterable [pz,py,px]
-    scale : scale in microns
-    mode: type 0:cellpose 1:cellpose+watershed
+    img : ndarray
+        Image (C, H, W) with membrane [idx 0] and nuclei channels [idx 1].
+    pixel_size : list of float
+        Pixel size as [pz, py, px].
+    scale : float
+        Scale in microns.
+    mode : int
+        Type 0: Cellpose, 1: Cellpose + watershed.
 
-    Result
-    ------
-    label array (H,W)
+    Returns
+    -------
+    clabels : ndarray
+        Label array (H, W).
     """
     print(f" - Segmenting cells with mode {mode}")
 
-    from scipy.ndimage import distance_transform_edt, median_filter
+    from scipy.ndimage import distance_transform_edt
     from skimage.segmentation import watershed
 
-    # model = models.Cellpose(gpu=True, model_type='cyto2')
-    # mask, flows, styles, diams = model.eval(img, diameter=d, flow_threshold=None, channels=[0,1])
     if mode == 1:
-        # segment the nuclei
         d = 0.33 * 1000 * scale / pixel_size[-1]
         model = models.Cellpose(gpu=core.use_gpu(), model_type="nuclei")
         nlabels = model.eval(
             img[1],
             diameter=d,
             flow_threshold=None,
-            cellprob_threshold=0.1,  # default is 0
-            min_size=100000,  # filter out smaller cells
+            cellprob_threshold=0.1,
+            min_size=100000,
         )[0]
 
-        # compute the distance transform as priority map from the nuclei
         dist = distance_transform_edt(nlabels > 0)
-
-        # compute a mask for the watershed
         mask = gaussian_filter(np.amax(img, 0), 15)
         mask = mask > mask[mask < np.quantile(mask, 0.1)].mean()
-
-        # apply a watershed
         clabels = watershed(-dist, nlabels, mask=mask)
     else:
         d = round(1000 * scale / pixel_size[-1])
@@ -279,13 +428,30 @@ def segment_cells(img, pixel_size, scale, mode):
             channel_axis=0,
             channels=[0, 1],
             diameter=d,
-            min_size=100000,  # filter out smaller cells
+            min_size=100000,
         )[0]
 
     return clabels
 
 
 def segment_nuclei(img, pixel_size, scale):
+    """
+    Segment nuclei in the image using Cellpose.
+
+    Parameters
+    ----------
+    img : ndarray
+        Nuclei channel image.
+    pixel_size : list of float
+        Pixel size as [pz, py, px].
+    scale : float
+        Scale in microns.
+
+    Returns
+    -------
+    mask : ndarray
+        Nuclei mask.
+    """
     print(" - Segmenting nuclei")
     d = 0.33 * 1000 * scale / pixel_size[-1]
     model = models.Cellpose(gpu=core.use_gpu(), model_type="nuclei")
@@ -294,6 +460,19 @@ def segment_nuclei(img, pixel_size, scale):
 
 
 def segment_granules(img):
+    """
+    Segment granules in the image using difference of Gaussians and morphology.
+
+    Parameters
+    ----------
+    img : ndarray
+        Granule channel image.
+
+    Returns
+    -------
+    mask : ndarray
+        Labeled granule mask.
+    """
     print(" - Segmenting granule")
     flt = difference_of_gaussians(np.sqrt(img.astype(float)), 2, 4)
     t = flt.mean() + 2 * flt.std()
@@ -305,6 +484,23 @@ def segment_granules(img):
 
 
 def segment_image(img, pixel_size, config):
+    """
+    Segment images into cells, nuclei, granules, and other structures.
+
+    Parameters
+    ----------
+    img : dict
+        Dictionary of images by channel.
+    pixel_size : list of float
+        Pixel size as [pz, py, px].
+    config : dict
+        Configuration dictionary.
+
+    Returns
+    -------
+    labels : dict
+        Dictionary of label arrays.
+    """
     print("Segmenting images")
     scale = config["scale_um"]
     mode = config["mode"]
@@ -312,7 +508,6 @@ def segment_image(img, pixel_size, config):
         for k in img.keys():
             print(img[k].shape)
         tmp = img["membrane"] + img["granule"] + img["other"]
-        # tmp = ndimage.minimum_filter(ndimage.median_filter(tmp,5),11)
         tmp = gaussian_filter(tmp, 20)
         print(f"   image shape {tmp.shape}")
         labels = {
@@ -336,14 +531,20 @@ def segment_image(img, pixel_size, config):
 
 
 def spatial_spread_roi(prop, image):
-    """Spread as the trace of the moment matrix in a region for all channels
-    Parameter
-    ---------
-    prop  : a single regionprop object
-    image : ndarray (C,H,W)
-    Result
-    ------
-    list of tupe (centroid x, centroid y, sxx, sxy, syy) for each channel
+    """
+    Compute spread as the trace of the moment matrix in a region for all channels.
+
+    Parameters
+    ----------
+    prop : regionprops
+        A single regionprop object.
+    image : ndarray
+        Image data (C, H, W).
+
+    Returns
+    -------
+    S : list of tuple
+        List of (centroid x, centroid y, sxx, sxy, syy) for each channel.
     """
     y, x = np.meshgrid(
         np.arange(prop.bbox[0], prop.bbox[2]),
@@ -371,16 +572,20 @@ def spatial_spread_roi(prop, image):
 
 
 def spatial_spread_mask(mask, intensity):
-    """Spread as the trace of the moment matrix
+    """
+    Compute spread as the trace of the moment matrix.
 
-    Parameter
-    ---------
-    mask : mask on which to compute the spread (cell)
-    intensity : intensity in the selected channel
+    Parameters
+    ----------
+    mask : ndarray
+        Mask on which to compute the spread (cell).
+    intensity : ndarray
+        Intensity in the selected channel.
 
-    Result
-    ------
-    moments sx,sy,sxx,sxy,syy
+    Returns
+    -------
+    sx, sy, sxx, sxy, syy : float
+        Moments of the region.
     """
     x, y = np.meshgrid(np.arange(mask.shape[1]), np.arange(mask.shape[0]))
     w = ma.array(intensity - intensity.min(), mask=np.logical_not(mask))
@@ -398,9 +603,22 @@ def spatial_spread_mask(mask, intensity):
 
 
 def characteristic_radius(mask, intensity, fraction):
-    """radius corresponding to a fraction of the total intensity
+    """
+    Compute radius corresponding to a fraction of the total intensity.
 
-    Issue: the center is not well defined..
+    Parameters
+    ----------
+    mask : ndarray
+        Mask of the region.
+    intensity : ndarray
+        Intensity image.
+    fraction : float
+        Fraction of total intensity.
+
+    Returns
+    -------
+    r0 : float
+        Characteristic radius.
     """
     x0 = np.arange(mask.shape[1])
     y0 = np.arange(mask.shape[0])
@@ -409,10 +627,6 @@ def characteristic_radius(mask, intensity, fraction):
     x = ma.array(x, mask=np.logical_not(mask))
     y = ma.array(y, mask=np.logical_not(mask))
     sw = np.sum(w)
-    # Fx = np.array([(w * (x < v)).sum() / sw for v in x0])
-    # sx1 = np.interp(0.5, Fx, x0)
-    # Fy = np.array([(w * (y < v)).sum() / sw for v in y0])
-    # sy1 = np.interp(0.5, Fy, y0)
     ret = np.unravel_index(np.argmax(w), w.shape)
     sx1 = ret[1]
     sy1 = ret[0]
@@ -424,7 +638,21 @@ def characteristic_radius(mask, intensity, fraction):
 
 
 def fraction_in_spot(mask, intensity):
-    """Fraction of the intensity in spot like structures"""
+    """
+    Compute fraction of the intensity in spot-like structures.
+
+    Parameters
+    ----------
+    mask : ndarray
+        Mask of the region.
+    intensity : ndarray
+        Intensity image.
+
+    Returns
+    -------
+    fraction : float
+        Fraction of intensity in spots.
+    """
     score = gaussian_filter(intensity.astype(float), 2) - gaussian_filter(
         intensity.astype(float), 6
     )
@@ -436,7 +664,21 @@ def fraction_in_spot(mask, intensity):
 
 
 def does_not_touch_image_border(roi, img):
-    """Return true if the roi does not touch the image border defined by the shape [nc,ny,nx]"""
+    """
+    Return True if the ROI does not touch the image border.
+
+    Parameters
+    ----------
+    roi : regionprops
+        ROI object.
+    img : dict
+        Dictionary of images.
+
+    Returns
+    -------
+    bool
+        True if ROI does not touch border, False otherwise.
+    """
     shape = img["nuclei"].shape
     return (
         np.all(roi.coords > 0)
@@ -446,33 +688,71 @@ def does_not_touch_image_border(roi, img):
 
 
 def strech_range(x):
-    """Stretch the range of the array between 0 and 1 for display"""
+    """
+    Stretch the range of the array between 0 and 1 for display.
+
+    Parameters
+    ----------
+    x : ndarray
+        Input array.
+
+    Returns
+    -------
+    y : ndarray
+        Stretched array.
+    """
     a = x.mean() + 4 * x.std()
     b = np.median(x)
     return np.clip((x - b) / (a - b), 0, 1)
 
 
 def draw_spread(stats, channel, color, bbox=[0, 0, 1, 1]):
+    """
+    Draw spread circles on the plot for a given channel.
+
+    Parameters
+    ----------
+    stats : DataFrame or dict
+        Statistics for the ROIs.
+    channel : str
+        Channel name.
+    color : str
+        Color for the circles.
+    bbox : list, optional
+        Bounding box for offset (default is [0, 0, 1, 1]).
+    """
     X = stats[f"Centroid X {channel}"] - bbox[1]
     Y = stats[f"Centroid Y {channel}"] - bbox[0]
     S = stats[f"Spread {channel}"]
-    # S = stats[f'Radius P {channel}']
-
-    try:  #  X,Y,S are iterable
+    try:
         for x, y, s in zip(X, Y, S):
             c = plt.Circle((x, y), s, fill=False, color=color, alpha=0.75, lw=2)
             plt.gca().add_patch(c)
-    except:
+    except Exception as e:
+        print(e)
         pass
-    try:  # X,Y,S are not iterable
+    try:
         c = plt.Circle((X, Y), S, fill=False, color=color, alpha=0.75, lw=3)
         plt.gca().add_patch(c)
-    except:
+    except Exception as e:
+        print(e)
         pass
 
 
 def img2rgb(img):
-    """Convert a dictionnary of images to a RGB [H,W,C] array"""
+    """
+    Convert a dictionary of images to an RGB (H, W, 3) array.
+
+    Parameters
+    ----------
+    img : dict
+        Dictionary of images by channel.
+
+    Returns
+    -------
+    visu : ndarray
+        RGB image array.
+    """
     visu = np.zeros([img["nuclei"].shape[0], img["nuclei"].shape[1], 3])
     if "granule" in img.keys():
         tmp = strech_range(img["granule"])
@@ -490,8 +770,20 @@ def img2rgb(img):
 
 
 def show_image(img, labels, rois, stats):
-    """Show the image with labels and rois"""
+    """
+    Show the image with labels and ROIs.
 
+    Parameters
+    ----------
+    img : dict
+        Dictionary of images by channel.
+    labels : dict
+        Dictionary of label arrays.
+    rois : list
+        List of regionprops objects.
+    stats : DataFrame or dict
+        ROI statistics.
+    """
     visu = img2rgb(img)
     plt.imshow(visu)
 
@@ -500,7 +792,8 @@ def show_image(img, labels, rois, stats):
             c = find_contours(ndimage.binary_erosion(labels["cells"] == r.label), 0.5)
             plt.plot(c[0][:, 1], c[0][:, 0])
             plt.text(r.centroid[1], r.centroid[0], f"{r.label}", color="white")
-        except:
+        except Exception as e:
+            print(e)
             print("failed to show cell")
 
     for r in np.unique(labels["nuclei"]):
@@ -508,8 +801,9 @@ def show_image(img, labels, rois, stats):
             if r > 0:
                 c = find_contours(labels["nuclei"] == r, 0.5)
                 plt.plot(c[0][:, 1], c[0][:, 0], "w", alpha=0.5)
-        except:
-            print("failed to show nuclei")
+        except Exception as e:
+            print(e)
+            print("Failed to show nuclei")
     try:
         if "granule" in img.keys():
             pass
@@ -520,15 +814,28 @@ def show_image(img, labels, rois, stats):
                 if c != "nuclei":
                     draw_spread(stats, f"of {c}", color[n])
                     n = n + 1
-    except:
-        print("failed to draw spread")
+    except Exception as e:
+        print(e)
+        print("Failed to draw spread")
 
     plt.axis("off")
 
 
 def show_roi(roi, img, labels, stats):
-    """Show ROI"""
+    """
+    Show a single ROI.
 
+    Parameters
+    ----------
+    roi : regionprops
+        ROI object.
+    img : dict
+        Dictionary of images by channel.
+    labels : dict
+        Dictionary of label arrays.
+    stats : DataFrame or dict
+        ROI statistics.
+    """
     masks, img = compute_roi_masks(roi, labels, img)
 
     visu = img2rgb(img)
@@ -538,7 +845,7 @@ def show_roi(roi, img, labels, stats):
     plt.plot(c[0][:, 1], c[0][:, 0], "w")
 
     if "granule" in img.keys():
-        draw_spread(stats, f"in cells of granule channel", "red")
+        draw_spread(stats, "in cells of granule channel", "red")
     else:
         color = ["red", "green", "blue", "white"]
         n = 0
@@ -552,19 +859,26 @@ def show_roi(roi, img, labels, stats):
 
 
 def compute_roi_masks(roi, labels, img, border=20):
-    """Compute a mask for each ROI
+    """
+    Compute a mask for each ROI.
 
     Parameters
     ----------
-    roi    : label of the roi
-    labels : map of labels
-    img    : a dictionnary of images
-    border : border around the ROI
+    roi : regionprops
+        ROI object.
+    labels : dict
+        Dictionary of label arrays.
+    img : dict
+        Dictionary of images by channel.
+    border : int, optional
+        Border around the ROI (default is 20).
 
-    Results
+    Returns
     -------
-    mask : a dictionnary of cropped masks
-    img  : a dictionnary of images cropped around the ROI
+    mask : dict
+        Dictionary of cropped masks.
+    img_crop : dict
+        Dictionary of cropped images.
     """
     crop = {
         k: labels[k][
@@ -598,15 +912,18 @@ def compute_roi_masks(roi, labels, img, border=20):
 
 
 def compute_roi_distance(masks):
-    """Distance maps for nuclei and membrane
+    """
+    Compute distance maps for nuclei and membrane.
 
-    Parameter
-    ---------
-    masks: dictionnary with nucleus and cells masks
+    Parameters
+    ----------
+    masks : dict
+        Dictionary with nucleus and cell masks.
 
-    Result
-    ------
-    distances: dictionnary with distance to nucleus, membrane, and fraction
+    Returns
+    -------
+    distances : dict
+        Dictionary with distance to nucleus, membrane, and fraction.
     """
     d1 = edt.edt(1 - (masks["nucleus"] > 0).astype(int))
     d2 = edt.edt(masks["cell"])
@@ -622,7 +939,25 @@ def compute_roi_distance(masks):
 
 
 def manders_coefficients(mask1, mask2, im1, im2):
-    """Compute Manders overlap coefficients"""
+    """
+    Compute Manders overlap coefficients.
+
+    Parameters
+    ----------
+    mask1 : ndarray
+        First mask.
+    mask2 : ndarray
+        Second mask.
+    im1 : ndarray
+        First image.
+    im2 : ndarray
+        Second image.
+
+    Returns
+    -------
+    m1, m2 : float
+        Manders coefficients.
+    """
     intersect = np.logical_and(mask1, mask2)
     n1 = np.sum(mask1 * im1, dtype=float)
     n2 = np.sum(mask2 * im2, dtype=float)
@@ -632,20 +967,25 @@ def manders_coefficients(mask1, mask2, im1, im2):
 
 
 def measure_roi_stats(roi, img, masks, distances):
-    """measure statisics for a given roi
+    """
+    Measure statistics for a given ROI.
 
     Parameters
     ----------
-    roi : roi from regionprops
-    img : dictionnary of images with keys cells,nuclei,granule,other
-    masks :  dictionnary of images with keys nucleus,cell,particle,cytosol,other
-    distances : dictionnary of distances map with keys nuclei,membrane
+    roi : regionprops
+        ROI object.
+    img : dict
+        Dictionary of images with keys cells, nuclei, granule, other.
+    masks : dict
+        Dictionary of masks with keys nucleus, cell, particle, cytosol, other.
+    distances : dict
+        Dictionary of distance maps with keys nucleus, membrane.
 
-    Note
-    ----
-    masks['particle'] and masks['other'] are labels while the others are binary
+    Returns
+    -------
+    stats : dict
+        Dictionary of measured statistics.
     """
-
     particles = regionprops(masks["particle"])
     particles = [
         r
@@ -670,7 +1010,6 @@ def measure_roi_stats(roi, img, masks, distances):
         / np.sum(masks["cytosol"], dtype=float),
     }
 
-    # for each mask compute mean and total intensity in channels granule and other
     for m in masks:
         sum_mask = np.sum(masks[m] > 0, dtype=float)
         for c in ["granule", "other"]:
@@ -682,7 +1021,6 @@ def measure_roi_stats(roi, img, masks, distances):
                 sum_mask_x_img / sum_mask if sum_mask > 0 else 0
             )
 
-    # compute ratio of mean intensity for channels granule and other
     for c in ["granule", "other"]:
         bot = stats["Mean intensity in cytosol of " + c + " channel"]
         top = stats["Mean intensity in particle of " + c + " channel"]
@@ -697,7 +1035,6 @@ def measure_roi_stats(roi, img, masks, distances):
         sp = spatial_spread_mask(masks["particle"], tmp)
         stats["Spread in particles of " + c + " channel"] = np.sqrt(sp[2] + sp[4])
 
-    # colocalization
     I1 = img["granule"][masks["cell"]].astype(float)
     I2 = img["other"][masks["cell"]].astype(float)
     stats["Colocalization spearman granule:other"] = spearmanr(I1, I2)[0]
@@ -835,21 +1172,27 @@ def config2img(img, config):
     return dst
 
 
-def process_fov(filename, position, config):
+def process_fov(filename: Path, position: int, config):
     """Process the field of view
 
     Parameter
     ---------
-    filename: image filename
-    position: position in the multiposition file
+    filename: Path or str
+        image filename
+    position: int
+        position in the multiposition file
     config: configuration with channel, scale and mode
 
-    Result
-    ------
-    stats: dataframe
-    mip: maximum intensity projection
-    labels: segmentation labels
-    rois: regionprops
+    Returns
+    -------
+    pd.DataFrame
+        dataframe with statistics for each ROI
+    np.ndarray
+        maximum intensity projection
+    np.ndarray
+        segmentation labels
+    rois: list of RegionsProperties
+        list of regionprops objects for each cell
     """
     print("Processing [SG]")
 
@@ -880,7 +1223,8 @@ def process_fov(filename, position, config):
             masks, crop_img = compute_roi_masks(roi, labels, mip, border=0)
             distances = compute_roi_distance(masks)
             stats.append(measure_roi_stats(roi, crop_img, masks, distances))
-        except:
+        except Exception as e:
+            print(e)
             print("Error encountered for ROI", k)
 
     stats = pd.DataFrame(stats)
@@ -927,7 +1271,8 @@ def process_fov_spread(filename, position, config):
             masks, crop_img = compute_roi_masks(roi, labels, mip, border=0)
             distances = compute_roi_distance(masks)
             stats.append(measure_roi_spread(roi, crop_img, masks, distances))
-        except:
+        except Exception as e:
+            print(e)
             print("Error encountered for ROI", k)
 
     stats = pd.DataFrame(stats)
@@ -936,7 +1281,18 @@ def process_fov_spread(filename, position, config):
 
 
 def scan_folder_nd2(folder: Path):
-    """list the field of views of a ND2 file"""
+    """List the field of views of a ND2 file
+
+    Parameters
+    ----------
+    folder: Path
+        Folder where nd2 files are
+
+    Returns
+    -------
+    pd.Dataframe
+        Dataframe
+    """
     L = []
     for file in folder.glob("*.nd2"):
         condition = file.split("_")[1].replace("Well", "")
@@ -951,13 +1307,25 @@ def scan_folder_nd2(folder: Path):
                             "channels": images.sizes["c"],
                         }
                     )
-        except:
+        except Exception as e:
+            print(e)
             print("An error occured on this file " + str(file))
     return pd.DataFrame(L)
 
 
 def scan_folder_lsm(folder: Path):
-    """list the field of views of a LSM file"""
+    """list the field of views of a LSM file
+
+    Parameters
+    ----------
+    folder: Path
+        Folder where lsm files are
+
+    Returns
+    -------
+    pd.DataFrame
+        Dataframe with filename, fov, condition and channels
+    """
     L = []
     for file in folder.glob("*.lsm"):
         try:
@@ -971,13 +1339,26 @@ def scan_folder_lsm(folder: Path):
                             "channels": tif.lsm_metadata["DimensionChannels"],
                         }
                     )
-        except:
+        except Exception as e:
+            print(e)
             print("An error occured on this file " + str(file))
     return pd.DataFrame(L)
 
 
 def scan(args):
-    """Scan a folder of nd2 files and list the field of views (fov)"""
+    """Scan a folder of nd2 files and list the field of views (fov)
+
+    Parameters
+    ----------
+    args: argparse.Namespace or Path
+        If Namespace, it should contain data_path, file_type and file_list.
+        If Path, it should be the folder to scan.
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with filename, fov, condition and channels.
+    """
 
     print("[ Scan ]")
 
@@ -1046,7 +1427,7 @@ def process(args):
     print(f"File: {filename}")
     print(f"Field of view: {fov}")
     print(f"Configuration: {config}")
-    print(f'Analysis: {config["Analysis"]}')
+    print(f"Analysis: {config['Analysis']}")
 
     ### Start processing ###
     if config["Analysis"] == "SG":
@@ -1073,7 +1454,18 @@ def process(args):
 
 
 def facet_plot(data, cols, columns=4):
-    """Create a boxplot for each column in a dataframe"""
+    """Create a boxplot for each column in a dataframe
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        DataFrame containing the data to plot.
+    cols : list
+        List of column names to plot.
+    columns : int, optional
+        Number of columns in the facet grid (default is 4).
+
+    """
     import math
 
     rows = math.ceil(len(cols) / columns)
@@ -1092,7 +1484,7 @@ def facet_plot(data, cols, columns=4):
 
                 except Exception as e:
                     print("***")
-                    print(f'* could not show column "{cols[columns*r+c]}"')
+                    print(f'* could not show column "{cols[columns * r + c]}"')
                     print(f"* {e}")
                     print("***")
 
@@ -1100,9 +1492,13 @@ def facet_plot(data, cols, columns=4):
 def make_figure(args):
     """Make a figure
 
-    The parameter args has file_list and data_path as attribute
-
     Save a cells.csv and cells.pdf file in {data_path}/results
+
+    Parameters
+    ----------
+    args: argparse.args
+        file_list and data_path as attribute
+
     """
     print("[ Figure ]")
     plt.style.use("default")
@@ -1113,7 +1509,8 @@ def make_figure(args):
     for k in range(len(filelist)):
         try:
             cells.append(pd.read_csv(folder / "results" / f"cells{k:06d}.csv"))
-        except:
+        except Exception as e:
+            print(e)
             print(f"missing {k}")
 
     cells = pd.concat(cells)
@@ -1140,7 +1537,7 @@ def make_figure(args):
     plt.savefig(figname)
 
 
-def main():
+if __name__ == "__main__":
     # create the argument parser
     parser = argparse.ArgumentParser(description="Stress granules analysis")
     subparsers = parser.add_subparsers(help="sub-command help")
@@ -1175,7 +1572,3 @@ def main():
 
     args = parser.parse_args()
     args.func(args)
-
-
-if __name__ == "__main__":
-    main()

@@ -3,7 +3,7 @@
 #@File (label="Local share",description="Local mounting point of the network share", style="directory") local_share
 #@String (label="Remote share",description="Remote mounting point of the network share", value="/cephfs/") remote_share
 #@File(label="Folder", value="", style="directory",description="Path to the data folder from this computer") folder
-#@String(label="Python", value="", choices={"conda","micromamba","Jerome"}, description="Type of python installation") python
+#@String(label="Python", value="", choices={"conda","micromamba","common"}, description="Type of python installation") python
 #@String(label="Action",choices={"Install","Scan ND2","Scan LSM","Config SG","Config Spread","Process","Figure","List Jobs","Cancel Jobs","Open first image"}) action
 #@Boolean(label="GPU queue",value=True) use_gpu_queue
 
@@ -28,11 +28,11 @@ script_url = "https://raw.githubusercontent.com/jboulanger/sganalysis/master/sga
 env_url = "https://raw.githubusercontent.com/jboulanger/sganalysis/master/environment.yml";
 script_name = "sganalysiswf.py";
 if (python == "conda") {
-	cmd = "conda run -n sganalysis " + script_name  + " ";
+	cmd = "conda run -n sganalysis python " + script_name  + " ";
 } else if (python == "micromamba"){
-	cmd = "~/.local/bin/micromamba run -n sganalysis "  + script_name  + " ";
+	cmd = "~/.local/bin/micromamba run -n sganalysis python "  + script_name  + " ";
 } else {
-	cmd = "/lmb/home/jeromeb/.local/bin/micromamba run -n sganalysis " + script_name  + " ";
+	cmd = "/lmb/home/jeromeb/.local/bin/micromamba run -n sganalysis python " + script_name  + " ";
 }
 
 
@@ -73,7 +73,7 @@ function install() {
 	print("[ Installing script in your job folder ]");
 	print("Downloading the python script and save it in the job folder");
 	str = File.openUrlAsString(script_url);
-	dst = local_jobs_dir + File.separator + "sganalysiswf.py";
+	dst = local_jobs_dir + File.separator + script_name;
 	File.saveString(str,local_jobs_dir+File.separator+script_name);
 	print("Done");
 }
@@ -84,8 +84,9 @@ function scannd2() {
 	print(" - Remote path " + remote_path);
 	print(" - File list " + remote_path+"/filelist.csv");
 	jobname = "sga-scan.sh";
-	str  = "#!/bin/tcsh\n#SBATCH --job-name=sg-scan\n";
-	str  = "#SBATCH --time=01:00:00\n";
+	str  = "#!/bin/tcsh\n";
+	str += "#SBATCH --job-name=sg-scan\n";
+	str += "#SBATCH --time=01:00:00\n";
 	str += cmd + "scan --file-type nd2 --data-path=\""+remote_path+"\" --file-list \""+remote_path+"/filelist.csv\" --config \""+remote_path+"/config.json\"";
 	File.saveString(str,local_jobs_dir+File.separator+jobname);
 	ret = exec("ssh", username+"@"+hostname, "sbatch", "--chdir", remote_jobs_dir, jobname);
@@ -100,8 +101,12 @@ function scanlsm() {
 	print(" - Remote path " + remote_path);
 	print(" - File list " + remote_path+"/filelist.csv");
 	jobname = "sga-scan.sh";
-	str  = "#!/bin/tcsh\n#SBATCH --job-name=sg-scan\n#SBATCH --time=01:00:00\n"+cmd+"scan --file-type lsm --data-path=\""+remote_path+"\" --file-list \""+remote_path+"/filelist.csv\" --config \""+remote_path+"/config.json\"";
-	File.saveString(str,local_jobs_dir+File.separator+jobname);
+	str  = "#!/bin/tcsh\n";
+	str += "#SBATCH --job-name=sg-scan\n";
+	str += "#SBATCH --time=01:00:00\n";
+	str += "pwd\n";
+	str += cmd + "scan --file-type lsm --data-path=\""+remote_path+"\" --file-list \""+remote_path+"/filelist.csv\" --config \""+remote_path+"/config.json\"";
+	File.saveString(str, local_jobs_dir + File.separator + jobname);
 	ret = exec("ssh", username+"@"+hostname, "sbatch", "--chdir", remote_jobs_dir, jobname);
 	print(" " + ret);
 	print(" Job are now running in the background, use 'List Jobs' to check completion.");
@@ -198,7 +203,8 @@ function process() {
 		File.makeDirectory(folder+File.separator+"results");
 	}
 	jobname = "sga-process.sh";
-	str  = "#!/bin/tcsh\n#SBATCH --job-name=sga-process\n";
+	str  = "#!/bin/tcsh\n";
+	str += "#SBATCH --job-name=sga-process\n";
 	str += "#SBATCH --time=05:00:00\n";
 	if (use_gpu_queue) {
 		str += "#SBATCH --partition=gpu\n";
@@ -208,11 +214,13 @@ function process() {
 		str += "#SBATCH --partition=cpu\n";
 		str += "#SBATCH -c 32\n";
 	}
+	str += "pwd\n";
 	str += "set I=`printf %06d $SLURM_ARRAY_TASK_ID`\n";
 	str += cmd +"process --data-path=\""+remote_path+"\" ";
 	str += "--file-list \""+remote_path+"/filelist.csv\" --index $I ";
 	str += "--output-by-cells \""+remote_path+"\"/results/cells$I.csv ";
 	str += "--output-vignette \""+remote_path+"\"/results/vignettes$I.png";
+	
 	File.saveString(str,local_jobs_dir+File.separator+jobname);
 	Table.open(folder+File.separator+"filelist.csv");
 	n = Table.size;

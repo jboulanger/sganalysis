@@ -48,7 +48,6 @@ import pandas as pd
 from pathlib import Path
 import os
 import json
-import dask.array as da
 
 # import nd2 # did not work on the cluster
 import seaborn as sns

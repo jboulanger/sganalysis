@@ -48,6 +48,7 @@ import pandas as pd
 from pathlib import Path
 import os
 import json
+import dask.array as da
 
 # import nd2 # did not work on the cluster
 import seaborn as sns
@@ -138,7 +139,7 @@ def load_lsm(filename, fov):
             return data[fov], pixel_size
 
 
-def load_tiff(filename, fov):
+def load_tiff(filename: str | Path, fov: int):
     """
     Load image data from a TIFF file.
 
@@ -158,29 +159,37 @@ def load_tiff(filename, fov):
     """
     with tifffile.TiffFile(filename) as tif:
         data = tif.asarray()
+
         if tif.is_imagej:
             md = tif.imagej_metadata
+            print(md["spacing"], md["unit"])
             if md["unit"] == "nm":
-                z = md["spacing"]
+                factor = 1
             elif md["unit"] == "micron" or md["unit"] == "\\u00B5m":
-                z = md["spacing"] * 1e-3
+                factor = 1e3
             elif md["unit"] == "m":
-                z = md["spacing"] * 1e-9
+                factor = 1e9
             else:
                 raise ValueError(f"Unsupported unit ({md['unit']}) in TIFF file.")
 
             x = (
                 tif.pages[0].tags["XResolution"].value[1]
                 / tif.pages[0].tags["XResolution"].value[0]
+                * factor
             )
 
             y = (
                 tif.pages[0].tags["YResolution"].value[1]
                 / tif.pages[0].tags["YResolution"].value[0]
+                * factor
             )
+
+            z = md["spacing"] * factor
         else:
             raise ValueError("Unsupported tiff format.")
+
         pixel_size = [z, y, x]
+        print(data.shape, pixel_size)
         if data.ndim == 3:
             return data, pixel_size
         else:
@@ -208,8 +217,10 @@ def load_image(filename, fov):
     path = Path(filename)
     if path.suffix == ".nd2":
         return load_nd2(filename, fov)
-    else:
+    elif path.suffix == ".lsm":
         return load_lsm(filename, fov)
+    else:
+        return load_tiff(filename, fov)
 
 
 def generate_otf3d(
@@ -1410,7 +1421,6 @@ def scan_folder_tiff(folder: Path):
     # list of files
     L = []
     for file in folder.glob("*.tif"):
-        print(file)
         if not file.name.startswith("."):
             try:
                 with tifffile.TiffFile(file) as tif:

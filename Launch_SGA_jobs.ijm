@@ -40,16 +40,14 @@ if (python == "conda") {
 if (File.exists(local_jobs_dir) != 1) {
 	print("Creating a jobs folder in " + local_share);
 	File.makeDirectory(local_jobs_dir);
-} else {
-	print("Jobs folder already present in " + local_share);
-}
+} 
 
 if (matches(action, "Scan ND2")) {
 	scannd2();
 } else if(matches(action, "Scan LSM")){
 	scanlsm();
-else if(matches(action, "Scan TIFF")){
-	scantif();
+} else if(matches(action, "Scan TIFF")){
+	scantiff();
 } else if (matches(action, "Config SG")) {
 	configSG();
 } else if (matches(action, "Config Spread")) {

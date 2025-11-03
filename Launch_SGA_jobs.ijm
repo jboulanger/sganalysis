@@ -4,7 +4,7 @@
 #@String (label="Remote share",description="Remote mounting point of the network share", value="/cephfs/") remote_share
 #@File(label="Folder", value="", style="directory",description="Path to the data folder from this computer") folder
 #@String(label="Python", value="", choices={"conda","micromamba","common"}, description="Type of python installation") python
-#@String(label="Action",choices={"Install","Scan ND2","Scan LSM","Config SG","Config Spread","Process","Figure","List Jobs","Cancel Jobs","Open first image"}) action
+#@String(label="Action",choices={"Install","Scan ND2","Scan LSM","Scan TIFF","Config SG","Config Spread","Process","Figure","List Jobs","Cancel Jobs","Open first image"}) action
 #@Boolean(label="GPU queue",value=True) use_gpu_queue
 
 /*
@@ -32,7 +32,7 @@ if (python == "conda") {
 } else if (python == "micromamba"){
 	cmd = "~/.local/bin/micromamba run -n sganalysis python "  + script_name  + " ";
 } else {
-	cmd = "/lmb/home/jeromeb/.local/bin/micromamba run -n sganalysis python " + script_name  + " ";
+	cmd = "~/.local/bin/micromamba -p /lmb/home/jeromeb/micromamba/envs/sganalysis run python " + script_name  + " ";
 }
 
 
@@ -48,6 +48,8 @@ if (matches(action, "Scan ND2")) {
 	scannd2();
 } else if(matches(action, "Scan LSM")){
 	scanlsm();
+else if(matches(action, "Scan TIFF")){
+	scantif();
 } else if (matches(action, "Config SG")) {
 	configSG();
 } else if (matches(action, "Config Spread")) {
@@ -64,7 +66,7 @@ if (matches(action, "Scan ND2")) {
 	cancelJobs();
 } else if (matches(action, "Open first image")) {
 	Table.open(folder+File.separator+"filelist.csv");
-	fname = Table.getString("filename", 0);	
+	fname = Table.getString("filename", 0);
 	print("Opening image" + fname);
 	open(folder + File.separator + fname);
 }
@@ -84,7 +86,7 @@ function scannd2() {
 	print(" - Remote path " + remote_path);
 	print(" - File list " + remote_path+"/filelist.csv");
 	jobname = "sga-scan.sh";
-	str  = "#!/bin/tcsh\n";
+	str  = "#!/bin/bash\n";
 	str += "#SBATCH --job-name=sg-scan\n";
 	str += "#SBATCH --time=01:00:00\n";
 	str += cmd + "scan --file-type nd2 --data-path=\""+remote_path+"\" --file-list \""+remote_path+"/filelist.csv\" --config \""+remote_path+"/config.json\"";
@@ -101,11 +103,29 @@ function scanlsm() {
 	print(" - Remote path " + remote_path);
 	print(" - File list " + remote_path+"/filelist.csv");
 	jobname = "sga-scan.sh";
-	str  = "#!/bin/tcsh\n";
+	str  = "#!/bin/bash\n";
 	str += "#SBATCH --job-name=sg-scan\n";
 	str += "#SBATCH --time=01:00:00\n";
 	str += "pwd\n";
 	str += cmd + "scan --file-type lsm --data-path=\""+remote_path+"\" --file-list \""+remote_path+"/filelist.csv\" --config \""+remote_path+"/config.json\"";
+	File.saveString(str, local_jobs_dir + File.separator + jobname);
+	ret = exec("ssh", username+"@"+hostname, "sbatch", "--chdir", remote_jobs_dir, jobname);
+	print(" " + ret);
+	print(" Job are now running in the background, use 'List Jobs' to check completion.");
+	print(" Next: edit channel orders in the config.json file.");
+}
+
+function scantiff() {
+	print("[ Scanning data folder for TIFF files ]");
+	print("List all files in the data folder and create a filelist.csv file.");
+	print(" - Remote path " + remote_path);
+	print(" - File list " + remote_path+"/filelist.csv");
+	jobname = "sga-scan.sh";
+	str  = "#!/bin/bash\n";
+	str += "#SBATCH --job-name=sg-scan\n";
+	str += "#SBATCH --time=01:00:00\n";
+	str += "pwd\n";
+	str += cmd + "scan --file-type tiff --data-path=\""+remote_path+"\" --file-list \""+remote_path+"/filelist.csv\" --config \""+remote_path+"/config.json\"";
 	File.saveString(str, local_jobs_dir + File.separator + jobname);
 	ret = exec("ssh", username+"@"+hostname, "sbatch", "--chdir", remote_jobs_dir, jobname);
 	print(" " + ret);
@@ -203,7 +223,7 @@ function process() {
 		File.makeDirectory(folder+File.separator+"results");
 	}
 	jobname = "sga-process.sh";
-	str  = "#!/bin/tcsh\n";
+	str  = "#!/bin/bash\n";
 	str += "#SBATCH --job-name=sga-process\n";
 	str += "#SBATCH --time=05:00:00\n";
 	if (use_gpu_queue) {
@@ -215,12 +235,13 @@ function process() {
 		str += "#SBATCH -c 32\n";
 	}
 	str += "pwd\n";
-	str += "set I=`printf %06d $SLURM_ARRAY_TASK_ID`\n";
+	str += "I=$(printf %06d $SLURM_ARRAY_TASK_ID)\n";
+	str += "echo $I\n";
 	str += cmd +"process --data-path=\""+remote_path+"\" ";
 	str += "--file-list \""+remote_path+"/filelist.csv\" --index $I ";
 	str += "--output-by-cells \""+remote_path+"\"/results/cells$I.csv ";
 	str += "--output-vignette \""+remote_path+"\"/results/vignettes$I.png";
-	
+
 	File.saveString(str,local_jobs_dir+File.separator+jobname);
 	Table.open(folder+File.separator+"filelist.csv");
 	n = Table.size;
@@ -271,7 +292,7 @@ function listJobs() {
 
 function cancelJobs() {
 	print("[ Cancel jobs ]");
-	
+
 	if (isOpen("Results")) { selectWindow("Results"); run("Close"); }
 	ret = exec("ssh", username+"@"+hostname, "squeue -u "+username);
 	lines = split(ret,"\n");

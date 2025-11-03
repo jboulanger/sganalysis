@@ -15,8 +15,6 @@ dependencies:
   - pytorch
   - torchvision
   - torchaudio
-  - cudatoolkit=12.1 # Change to match your GPU/CUDA version
-  - pip
-  - pip:
-      - cellpose<=3
-      - edt
+  - cellpose<=3
+  - edt
+  

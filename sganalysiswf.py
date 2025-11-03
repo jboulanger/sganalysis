@@ -138,6 +138,55 @@ def load_lsm(filename, fov):
             return data[fov], pixel_size
 
 
+def load_tiff(filename, fov):
+    """
+    Load image data from a TIFF file.
+
+    Parameters
+    ----------
+    filename : str
+        Path to the LSM file.
+    fov : int
+        Field of view index to load.
+
+    Returns
+    -------
+    data : ndarray
+        Image data.
+    pixel_size : list of float
+        Pixel size in [z, y, x] (nanometers).
+    """
+    with tifffile.TiffFile(filename) as tif:
+        data = tif.asarray()
+        if tif.is_imagej:
+            md = tif.imagej_metadata
+            if md["unit"] == "nm":
+                z = md["spacing"]
+            elif md["unit"] == "micron" or md["unit"] == "\\u00B5m":
+                z = md["spacing"] * 1e-3
+            elif md["unit"] == "m":
+                z = md["spacing"] * 1e-9
+            else:
+                raise ValueError(f"Unsupported unit ({md['unit']}) in TIFF file.")
+
+            x = (
+                tif.pages[0].tags["XResolution"].value[1]
+                / tif.pages[0].tags["XResolution"].value[0]
+            )
+
+            y = (
+                tif.pages[0].tags["YResolution"].value[1]
+                / tif.pages[0].tags["YResolution"].value[0]
+            )
+        else:
+            raise ValueError("Unsupported tiff format.")
+        pixel_size = [z, y, x]
+        if data.ndim == 3:
+            return data, pixel_size
+        else:
+            return data[fov], pixel_size
+
+
 def load_image(filename, fov):
     """
     Load image data from ND2 or LSM file depending on file extension.
@@ -1345,6 +1394,43 @@ def scan_folder_lsm(folder: Path):
     return pd.DataFrame(L)
 
 
+def scan_folder_tiff(folder: Path):
+    """list the field of views of a LSM file
+
+    Parameters
+    ----------
+    folder: Path
+        Folder where TIFF files are
+
+    Returns
+    -------
+    pd.DataFrame
+        Dataframe with filename, fov, condition and channels
+    """
+    # list of files
+    L = []
+    for file in folder.glob("*.tif"):
+        print(file)
+        if not file.name.startswith("."):
+            try:
+                with tifffile.TiffFile(file) as tif:
+                    md = tif.imagej_metadata
+                    # we use frame as positions
+                    for fov in range(md["frames"]):
+                        L.append(
+                            {
+                                "filename": file.name,
+                                "fov": fov,
+                                "condition": "unknown",
+                                "channels": md["channels"],
+                            }
+                        )
+            except Exception as e:
+                print(e)
+                print("An error occured on this file " + str(file))
+    return pd.DataFrame(L)
+
+
 def scan(args):
     """Scan a folder of nd2 files and list the field of views (fov)
 
@@ -1365,7 +1451,7 @@ def scan(args):
     if isinstance(args, argparse.Namespace):
         folder = Path(args.data_path)
     else:
-        folder = args
+        folder = Path(args)
 
     print(f"Scanning folder  : {folder}")
     print(f"File type        : {args.file_type}")
@@ -1373,9 +1459,12 @@ def scan(args):
 
     if args.file_type == "nd2":
         df = scan_folder_nd2(folder)
-    else:
+    elif args.file_type == "lsm":
         df = scan_folder_lsm(folder)
+    else:
+        df = scan_folder_tiff(folder)
 
+    # save the filelist
     if isinstance(args, argparse.Namespace):
         if args.file_list is not None:
             print(f"Saving filelist table to csv file {args.file_list}")
@@ -1383,17 +1472,19 @@ def scan(args):
         else:
             print(df)
 
+    # create a default configuration file
     if isinstance(args, argparse.Namespace):
-        if os.path.exists(args.config) is False:
-            nchannels = df["channels"][0]
-            config = {
-                "channels": [
-                    {"index": k, "name": "undefined"} for k in range(nchannels)
-                ],
-                "scale_um": 50,
-            }
-            with open(args.config, "w") as fp:
-                json.dump(config, fp)
+        if args.config is not None:
+            if os.path.exists(args.config) is False:
+                nchannels = df["channels"][0]
+                config = {
+                    "channels": [
+                        {"index": k, "name": "undefined"} for k in range(nchannels)
+                    ],
+                    "scale_um": 50,
+                }
+                with open(args.config, "w") as fp:
+                    json.dump(config, fp)
 
     return df
 

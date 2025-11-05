@@ -138,7 +138,7 @@ def load_lsm(filename, fov):
             return data[fov], pixel_size
 
 
-def load_tiff(filename: str | Path, fov: int):
+def load_tiff(filename: str, fov: int):
     """
     Load image data from a TIFF file.
 

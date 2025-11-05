@@ -20,7 +20,8 @@
  */
 
 print("\n\n__________SGA______________");
-
+getDateAndTime(year, month, dayOfWeek, dayOfMonth, hour, minute, second, msec);
+print(""+year+"/"+month+"/"+dayOfMonth+" "+hour+":"+minute+":"+second);
 remote_path = replace(convert_slash(folder), convert_slash(local_share), remote_share);
 remote_jobs_dir = remote_share + "/jobs";
 local_jobs_dir = local_share + File.separator + "jobs";
@@ -28,7 +29,7 @@ script_url = "https://raw.githubusercontent.com/jboulanger/sganalysis/master/sga
 env_url = "https://raw.githubusercontent.com/jboulanger/sganalysis/master/environment.yml";
 script_name = "sganalysiswf.py";
 if (python == "conda") {
-	cmd = "conda run -n sganalysis python " + script_name  + " ";
+	cmd = "~/miniconda3/bin/conda run -n sganalysis python " + script_name  + " ";
 } else if (python == "micromamba"){
 	cmd = "~/.local/bin/micromamba run -n sganalysis python "  + script_name  + " ";
 } else {
@@ -40,7 +41,7 @@ if (python == "conda") {
 if (File.exists(local_jobs_dir) != 1) {
 	print("Creating a jobs folder in " + local_share);
 	File.makeDirectory(local_jobs_dir);
-} 
+}
 
 if (matches(action, "Scan ND2")) {
 	scannd2();

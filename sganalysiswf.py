@@ -560,14 +560,12 @@ def segment_image(img, pixel_size, config):
     labels : dict
         Dictionary of label arrays.
     """
-    print("Segmenting images")
+    print("Segmenting images ")
     scale = config["scale_um"]
     mode = config["mode"]
     if config["Analysis"] == "SG":
-        for k in img.keys():
-            print(img[k].shape)
-        tmp = img["membrane"] + img["granule"] + img["other"]
-        tmp = gaussian_filter(tmp, 20)
+        tmp = img["membrane"]  # + img["granule"] + img["other"]
+        # tmp = gaussian_filter(tmp, 20)
         print(f"   image shape {tmp.shape}")
         labels = {
             "cells": segment_cells(
@@ -1530,7 +1528,7 @@ def process(args):
     print(f"Analysis: {config['Analysis']}")
 
     ### Start processing ###
-    if config["Analysis"] == "SG":
+    if config["Analysis"] == "SG" or config["Analysis"] == "SG2":
         stats, mip, labels, rois = process_fov(filename, fov, config)
     else:
         stats, mip, labels, rois = process_fov_spread(filename, fov, config)

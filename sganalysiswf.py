@@ -53,6 +53,8 @@ import json
 import seaborn as sns
 import tifffile
 
+__version__ = "2025.11.25"
+
 
 def get_nd2_number_of_positions(filename):
     """
@@ -1499,7 +1501,7 @@ def scan(args):
 def process(args):
     """Sub command for processing item from a list of file / fov"""
 
-    print("[ Process ]")
+    print(f"[ Process v{__version__}]")
 
     ### Parsing command line arguments ###
 
@@ -1598,7 +1600,7 @@ def make_figure(args):
         file_list and data_path as attribute
 
     """
-    print("[ Figure ]")
+    print(f"[ Figure v{__version__}]")
     plt.style.use("default")
     cells = []
     folder = Path(args.data_path)

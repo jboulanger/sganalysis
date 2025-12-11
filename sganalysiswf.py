@@ -1676,7 +1676,7 @@ if __name__ == "__main__":
     parser_figure.set_defaults(func=make_figure)
 
     parser_scan = subparsers.add_parser("version", help="print verison")
-    parser_figure.set_defaults(func=version())
+    parser_figure.set_defaults(func=version)
 
     args = parser.parse_args()
     args.func(args)

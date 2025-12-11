@@ -466,7 +466,7 @@ def segment_cells(img, pixel_size, scale, mode):
 
     if mode == 1:
         d = 0.33 * 1000 * scale / pixel_size[-1]
-        model = models.CellposeModel(gpu=core.use_gpu(), model_type="nuclei")
+        model = models.CellposeModel(gpu=core.use_gpu(), pretrained_model="nuclei")
         nlabels = model.eval(
             img[1],
             diameter=d,
@@ -483,7 +483,7 @@ def segment_cells(img, pixel_size, scale, mode):
         d = round(1000 * scale / pixel_size[-1])
         print(f"    Cell size {d}")
         print(f"    Image shape {img.shape}")
-        model = models.CellposeModel(gpu=core.use_gpu(), model_type="cyto2")
+        model = models.CellposeModel(gpu=core.use_gpu(), pretrained_model="cyto3")
         clabels = model.eval(
             img,
             diameter=d,
@@ -514,7 +514,7 @@ def segment_nuclei(img, pixel_size, scale):
     print(" - Segmenting nuclei")
     d = 0.33 * 1000 * scale / pixel_size[-1]
     
-    model = models.CellposeModel(gpu=core.use_gpu(), model_type="nuclei")
+    model = models.CellposeModel(gpu=core.use_gpu(), pretrained_model="nuclei")
     mask = model.eval(img, diameter=d, flow_threshold=None)[0]
     return mask
 

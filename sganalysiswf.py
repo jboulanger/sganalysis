@@ -51,6 +51,7 @@ import pandas as pd
 from pathlib import Path
 import os
 import json
+
 # import nd2 # did not work on the cluster
 import seaborn as sns
 import tifffile
@@ -462,8 +463,6 @@ def segment_cells(img, pixel_size, scale, mode):
     """
     print(f" - Segmenting cells with mode {mode}")
 
-
-
     if mode == 1:
         d = 0.33 * 1000 * scale / pixel_size[-1]
         model = models.CellposeModel(gpu=core.use_gpu(), pretrained_model="nuclei")
@@ -513,7 +512,7 @@ def segment_nuclei(img, pixel_size, scale):
     """
     print(" - Segmenting nuclei")
     d = 0.33 * 1000 * scale / pixel_size[-1]
-    
+
     model = models.CellposeModel(gpu=core.use_gpu(), pretrained_model="nuclei")
     mask = model.eval(img, diameter=d, flow_threshold=None)[0]
     return mask
@@ -1675,8 +1674,8 @@ if __name__ == "__main__":
     parser_figure.add_argument("--file-list", help="filelist", required=True)
     parser_figure.set_defaults(func=make_figure)
 
-    parser_scan = subparsers.add_parser("version", help="print verison")
-    parser_figure.set_defaults(func=version)
+    parser_version = subparsers.add_parser("version", help="print verison")
+    parser_version.set_defaults(func=version)
 
     args = parser.parse_args()
     args.func(args)

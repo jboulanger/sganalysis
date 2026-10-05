@@ -74,8 +74,10 @@ function install() {
 	print("[ Installing script in your job folder ]");
 	print("Downloading the python script and save it in the job folder");
 	str = File.openUrlAsString(script_url);
+	print(script_url);
 	dst = local_jobs_dir + File.separator + script_name;
-	File.saveString(str,local_jobs_dir+File.separator+script_name);
+	print(dst);
+	File.saveString(str,dst);
 	print("Done");
 }
 
@@ -226,10 +228,12 @@ function process() {
 	str += "#SBATCH --job-name=sga-process\n";
 	str += "#SBATCH --time=05:00:00\n";
 	if (use_gpu_queue) {
+		print("Using the GPU queue");
 		str += "#SBATCH --partition=gpu\n";
 		str += "#SBATCH --gres=gpu:1\n";
 		str += "#SBATCH -c 12\n";
 	} else {
+		print("Using the CPU queue");
 		str += "#SBATCH --partition=cpu\n";
 		str += "#SBATCH -c 32\n";
 	}

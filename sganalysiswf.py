@@ -37,12 +37,15 @@ from nd2reader import ND2Reader
 import math
 from scipy import ndimage
 from scipy.ndimage import gaussian_filter
+from scipy.ndimage import distance_transform_edt
 from scipy.stats import pearsonr, spearmanr
 from skimage.filters import difference_of_gaussians, laplace
 from skimage.measure import label, regionprops, find_contours
+from skimage.segmentation import watershed
 from skimage import morphology
 from cellpose import models
 from cellpose import core
+import cellpose
 import edt
 import pandas as pd
 from pathlib import Path
@@ -52,6 +55,8 @@ import json
 # import nd2 # did not work on the cluster
 import seaborn as sns
 import tifffile
+
+__version__ = "2025.11.25"
 
 
 def get_nd2_number_of_positions(filename):
@@ -458,18 +463,15 @@ def segment_cells(img, pixel_size, scale, mode):
     """
     print(f" - Segmenting cells with mode {mode}")
 
-    from scipy.ndimage import distance_transform_edt
-    from skimage.segmentation import watershed
-
     if mode == 1:
         d = 0.33 * 1000 * scale / pixel_size[-1]
-        model = models.Cellpose(gpu=core.use_gpu(), model_type="nuclei")
+        model = models.CellposeModel(gpu=core.use_gpu(), pretrained_model="nuclei")
         nlabels = model.eval(
             img[1],
             diameter=d,
             flow_threshold=None,
             cellprob_threshold=0.1,
-            min_size=100000,
+            # min_size=10000,
         )[0]
 
         dist = distance_transform_edt(nlabels > 0)
@@ -480,14 +482,11 @@ def segment_cells(img, pixel_size, scale, mode):
         d = round(1000 * scale / pixel_size[-1])
         print(f"    Cell size {d}")
         print(f"    Image shape {img.shape}")
-        model = models.Cellpose(gpu=core.use_gpu(), model_type="cyto2")
-
+        model = models.CellposeModel(gpu=core.use_gpu(), pretrained_model="cyto3")
         clabels = model.eval(
             img,
-            channel_axis=0,
-            channels=[0, 1],
             diameter=d,
-            min_size=100000,
+            # min_size=10000,
         )[0]
 
     return clabels
@@ -513,8 +512,9 @@ def segment_nuclei(img, pixel_size, scale):
     """
     print(" - Segmenting nuclei")
     d = 0.33 * 1000 * scale / pixel_size[-1]
-    model = models.Cellpose(gpu=core.use_gpu(), model_type="nuclei")
-    mask = model.eval(img, diameter=d, flow_threshold=None, channels=[0, 0])[0]
+
+    model = models.CellposeModel(gpu=core.use_gpu(), pretrained_model="nuclei")
+    mask = model.eval(img, diameter=d, flow_threshold=None)[0]
     return mask
 
 
@@ -560,14 +560,12 @@ def segment_image(img, pixel_size, config):
     labels : dict
         Dictionary of label arrays.
     """
-    print("Segmenting images")
+    print("Segmenting images ")
     scale = config["scale_um"]
     mode = config["mode"]
     if config["Analysis"] == "SG":
-        for k in img.keys():
-            print(img[k].shape)
-        tmp = img["membrane"] + img["granule"] + img["other"]
-        tmp = gaussian_filter(tmp, 20)
+        tmp = img["membrane"]  # + img["granule"] + img["other"]
+        # tmp = gaussian_filter(tmp, 20)
         print(f"   image shape {tmp.shape}")
         labels = {
             "cells": segment_cells(
@@ -760,7 +758,7 @@ def strech_range(x):
     y : ndarray
         Stretched array.
     """
-    a = x.mean() + 4 * x.std()
+    a = x.mean() + 3 * x.std()
     b = np.median(x)
     return np.clip((x - b) / (a - b), 0, 1)
 
@@ -1501,7 +1499,7 @@ def scan(args):
 def process(args):
     """Sub command for processing item from a list of file / fov"""
 
-    print("[ Process ]")
+    print(f"[ Process v{__version__}]")
 
     ### Parsing command line arguments ###
 
@@ -1530,7 +1528,7 @@ def process(args):
     print(f"Analysis: {config['Analysis']}")
 
     ### Start processing ###
-    if config["Analysis"] == "SG":
+    if config["Analysis"] == "SG" or config["Analysis"] == "SG2":
         stats, mip, labels, rois = process_fov(filename, fov, config)
     else:
         stats, mip, labels, rois = process_fov_spread(filename, fov, config)
@@ -1600,7 +1598,7 @@ def make_figure(args):
         file_list and data_path as attribute
 
     """
-    print("[ Figure ]")
+    print(f"[ Figure v{__version__}]")
     plt.style.use("default")
     cells = []
     folder = Path(args.data_path)
@@ -1634,12 +1632,18 @@ def make_figure(args):
     facet_plot(cells, columns, 7)
     figname = os.path.join(args.data_path, "results", "cells.pdf")
     print(f"Saving figure to file {figname}")
-    plt.savefig(figname)
+    plt.savefig(figname, dpi=150)
+
+
+def version(args):
+    print(__version__)
 
 
 if __name__ == "__main__":
     # create the argument parser
-    parser = argparse.ArgumentParser(description="Stress granules analysis")
+    parser = argparse.ArgumentParser(
+        description=f"Stress granules analysis {__version__}"
+    )
     subparsers = parser.add_subparsers(help="sub-command help")
 
     # add the scan subparser
@@ -1669,6 +1673,9 @@ if __name__ == "__main__":
     parser_figure.add_argument("--data-path", help="path to data")
     parser_figure.add_argument("--file-list", help="filelist", required=True)
     parser_figure.set_defaults(func=make_figure)
+
+    parser_version = subparsers.add_parser("version", help="print verison")
+    parser_version.set_defaults(func=version)
 
     args = parser.parse_args()
     args.func(args)

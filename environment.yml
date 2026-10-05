@@ -16,5 +16,6 @@ dependencies:
   - torchaudio
   - cellpose
   - edt
+  - ipykernel
   - numba
   

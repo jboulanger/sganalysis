@@ -35,11 +35,9 @@ import numpy as np
 import numpy.ma as ma
 from nd2reader import ND2Reader
 import math
-from scipy import ndimage
-from scipy.ndimage import gaussian_filter
-from scipy.ndimage import distance_transform_edt
+from scipy import ndimage as ndi
 from scipy.stats import pearsonr, spearmanr
-from skimage.filters import difference_of_gaussians, laplace
+from skimage.filters import laplace
 from skimage.measure import label, regionprops, find_contours
 from skimage.segmentation import watershed
 from skimage import morphology
@@ -368,7 +366,7 @@ def correct_hotpixels_inplace(data):
     data : ndarray
         Image data to be corrected.
     """
-    baseline = ndimage.median_filter(data, size=3)
+    baseline = ndi.median_filter(data, size=3)
     delta = data - baseline
     thres = delta.mean() + delta.std()
     delta = np.abs(delta) > thres
@@ -474,8 +472,8 @@ def segment_cells(img, pixel_size, scale, mode):
             # min_size=10000,
         )[0]
 
-        dist = distance_transform_edt(nlabels > 0)
-        mask = gaussian_filter(np.amax(img, 0), 15)
+        dist = ndi.distance_transform_edt(nlabels > 0)
+        mask = ndi.gaussian_filter(np.amax(img, 0), 15)
         mask = mask > mask[mask < np.quantile(mask, 0.1)].mean()
         clabels = watershed(-dist, nlabels, mask=mask)
     else:
@@ -518,6 +516,31 @@ def segment_nuclei(img, pixel_size, scale):
     return mask
 
 
+def min_eigenvalue_hessian_2d(image, sigma=1.0):
+    """
+    Computes the minimum eigenvalue of the Hessian matrix for a 2D image.
+
+    Parameters:
+        image (ndarray): Input 2D image.
+        sigma (float): Gaussian blur standard deviation for scale-space derivatives.
+
+    Returns:
+        min_eig (ndarray): Map of minimum eigenvalues.
+    """
+    # 1. Compute second derivatives using Gaussian filters
+    I_xx = ndi.gaussian_filter(image, sigma=sigma, order=[2, 0])
+    I_yy = ndi.gaussian_filter(image, sigma=sigma, order=[0, 2])
+    I_xy = ndi.gaussian_filter(image, sigma=sigma, order=[1, 1])
+
+    # 2. Closed-form minimum eigenvalue for 2x2 symmetric matrix
+    trace = I_xx + I_yy
+    diff = I_xx - I_yy
+    discriminant = np.sqrt(diff**2 + 4 * I_xy**2)
+
+    lambda_min = (trace - discriminant) / 2
+    return lambda_min
+
+
 def segment_granules(img):
     """
     Segment granules in the image using difference of Gaussians and morphology.
@@ -533,12 +556,17 @@ def segment_granules(img):
         Labeled granule mask.
     """
     print(" - Segmenting granule")
-    flt = difference_of_gaussians(np.sqrt(img.astype(float)), 2, 4)
+    tmp = np.sqrt(img.astype(float))
+    flt = ndi.gaussian_filter(tmp, 2) - ndi.gaussian_filter(tmp, 4)
+    # flt = min_eigenvalue_hessian_2d(-tmp, sigma=2.0)
+
     t = flt.mean() + 2 * flt.std()
-    mask = morphology.remove_small_holes(
-        morphology.remove_small_objects(flt > t, min_size=5),
-    )
-    mask = morphology.opening(mask, morphology.disk(3))
+    mask = flt > t
+    # remove small objects
+    mask = morphology.remove_small_objects(mask, min_size=5)
+    # remove large objects
+    mask = mask ^ morphology.remove_small_objects(mask, min_size=80)
+    # mask = morphology.opening(mask, morphology.disk(3))
     return label(mask).astype(np.uint)
 
 
@@ -565,7 +593,7 @@ def segment_image(img, pixel_size, config):
     mode = config["mode"]
     if config["Analysis"] == "SG":
         tmp = img["membrane"]  # + img["granule"] + img["other"]
-        # tmp = gaussian_filter(tmp, 20)
+        # tmp = ndi.gaussian_filter(tmp, 20)
         print(f"   image shape {tmp.shape}")
         labels = {
             "cells": segment_cells(
@@ -577,7 +605,7 @@ def segment_image(img, pixel_size, config):
         }
     else:
         tmp = sum([img[c] for c in img if c != "nuclei"])
-        tmp = ndimage.minimum_filter(ndimage.median_filter(tmp, 5), 11)
+        tmp = ndi.minimum_filter(ndi.median_filter(tmp, 5), 11)
         labels = {
             "cells": segment_cells(
                 np.stack([tmp, img["nuclei"]]), pixel_size, scale, mode
@@ -710,7 +738,7 @@ def fraction_in_spot(mask, intensity):
     fraction : float
         Fraction of intensity in spots.
     """
-    score = gaussian_filter(intensity.astype(float), 2) - gaussian_filter(
+    score = ndi.gaussian_filter(intensity.astype(float), 2) - ndi.gaussian_filter(
         intensity.astype(float), 6
     )
     m = np.median(score)
@@ -846,7 +874,7 @@ def show_image(img, labels, rois, stats):
 
     for r in rois:
         try:
-            c = find_contours(ndimage.binary_erosion(labels["cells"] == r.label), 0.5)
+            c = find_contours(ndi.binary_erosion(labels["cells"] == r.label), 0.5)
             plt.plot(c[0][:, 1], c[0][:, 0])
             plt.text(r.centroid[1], r.centroid[0], f"{r.label}", color="white")
         except Exception as e:
@@ -1084,7 +1112,7 @@ def measure_roi_stats(roi, img, masks, distances):
         stats["Mean intensity ratio particle:cytosol of channel other"] = (
             top / bot if bot > 0 else 0
         )
-        tmp = gaussian_filter(img[c], 10)
+        tmp = ndi.gaussian_filter(img[c], 10)
         sc = spatial_spread_mask(masks["cell"], tmp)
         stats["Centroid X in cells of " + c + " channel"] = roi.bbox[1] + sc[0]
         stats["Centroid Y in cells of " + c + " channel"] = roi.bbox[0] + sc[1]
@@ -1204,7 +1232,7 @@ def measure_roi_spread(roi, img, masks, distances):
             sum_mask_x_img / sum_mask if sum_mask > 0 else 0
         )
         tmp = (img[c] * masks["cell"]).astype(float)
-        tmp = gaussian_filter(tmp, 5)
+        tmp = ndi.gaussian_filter(tmp, 5)
         # tmp = white_tophat(tmp, 10)
         tmp = np.maximum(tmp - np.median(tmp) - tmp.std(), 0)
         # plt.figure()

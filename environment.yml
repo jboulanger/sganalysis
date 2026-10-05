@@ -1,9 +1,8 @@
 name: sganalysis
 channels:
   - conda-forge
-  - pytorch
 dependencies:
-  - python=3.10
+  - python
   - numpy
   - scipy
   - scikit-image
@@ -12,9 +11,10 @@ dependencies:
   - seaborn
   - tifffile
   - nd2reader
-  - pytorch
+  - pytorch-gpu
   - torchvision
   - torchaudio
-  - cellpose<=3
+  - cellpose
   - edt
+  - numba
   

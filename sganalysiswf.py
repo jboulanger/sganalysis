@@ -1527,6 +1527,7 @@ def process(args):
     """Sub command for processing item from a list of file / fov"""
 
     print(f"[ Process v{__version__}]")
+    print(f"Cellpose version {cellpose.version}")
 
     ### Parsing command line arguments ###
 

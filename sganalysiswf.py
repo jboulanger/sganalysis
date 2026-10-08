@@ -467,7 +467,6 @@ def segment_cells(img, pixel_size, scale, mode):
         nlabels = model.eval(
             img[1],
             diameter=d,
-            flow_threshold=None,
             cellprob_threshold=0.1,
             # min_size=10000,
         )[0]
@@ -512,7 +511,7 @@ def segment_nuclei(img, pixel_size, scale):
     d = 0.33 * 1000 * scale / pixel_size[-1]
 
     model = models.CellposeModel(gpu=core.use_gpu(), pretrained_model="nuclei")
-    mask = model.eval(img, diameter=d, flow_threshold=None)[0]
+    mask = model.eval(img, diameter=d)[0]
     return mask
 
 

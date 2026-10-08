@@ -54,7 +54,7 @@ import json
 import seaborn as sns
 import tifffile
 
-__version__ = "2025.11.25"
+__version__ = "2026.10.08"
 
 
 def get_nd2_number_of_positions(filename):
@@ -463,7 +463,7 @@ def segment_cells(img, pixel_size, scale, mode):
 
     if mode == 1:
         d = 0.33 * 1000 * scale / pixel_size[-1]
-        model = models.CellposeModel(gpu=core.use_gpu(), pretrained_model="nuclei")
+        model = models.CellposeModel(gpu=core.use_gpu(), model_type="nuclei")
         nlabels = model.eval(
             img[1],
             diameter=d,
@@ -479,11 +479,10 @@ def segment_cells(img, pixel_size, scale, mode):
         d = round(1000 * scale / pixel_size[-1])
         print(f"    Cell size {d}")
         print(f"    Image shape {img.shape}")
-        model = models.CellposeModel(gpu=core.use_gpu(), pretrained_model="cyto3")
+        model = models.CellposeModel(gpu=core.use_gpu(), model_type="cyto2_cp3")
         clabels = model.eval(
             img,
             diameter=d,
-            # min_size=10000,
         )[0]
 
     return clabels
@@ -507,10 +506,10 @@ def segment_nuclei(img, pixel_size, scale):
     mask : ndarray
         Nuclei mask.
     """
-    print(" - Segmenting nuclei")
     d = 0.33 * 1000 * scale / pixel_size[-1]
-
-    model = models.CellposeModel(gpu=core.use_gpu(), pretrained_model="nuclei")
+    print(f" - Segmenting nuclei with diamter {0.33 * scale:.2f}um / {d:.2f}px")
+    # img = ndi.maximum_filter(ndi.minimum_filter(img, 10), 10)
+    model = models.CellposeModel(gpu=core.use_gpu(), model_type="nuclei")
     mask = model.eval(img, diameter=d)[0]
     return mask
 

@@ -240,6 +240,7 @@ function process() {
 	str += "pwd\n";
 	str += "I=$(printf %06d $SLURM_ARRAY_TASK_ID)\n";
 	str += "echo $I\n";
+	str += ""
 	str += cmd +"process --data-path=\""+remote_path+"\" ";
 	str += "--file-list \""+remote_path+"/filelist.csv\" --index $I ";
 	str += "--output-by-cells \""+remote_path+"\"/results/cells$I.csv ";

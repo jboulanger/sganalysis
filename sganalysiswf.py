@@ -1448,12 +1448,22 @@ def scan_folder_tiff(folder: Path):
             try:
                 with tifffile.TiffFile(file) as tif:
                     md = tif.imagej_metadata
-                    # we use frame as positions
-                    for fov in range(md["frames"]):
+                    if "frames" in md.keys():
+                        # we use frame as positions
+                        for fov in range(md["frames"]):
+                            L.append(
+                                {
+                                    "filename": file.name,
+                                    "fov": fov,
+                                    "condition": "unknown",
+                                    "channels": md["channels"],
+                                }
+                            )
+                    else:
                         L.append(
                             {
                                 "filename": file.name,
-                                "fov": fov,
+                                "fov": 0,
                                 "condition": "unknown",
                                 "channels": md["channels"],
                             }
